@@ -232,49 +232,90 @@ export class Renderer {
   }
 
   // ---------------------------------------------------------------- units
+  // ship deck plan: pointed bow (-Z), straight sides, rounded stern — extruded up
+  _hullGeo(len, beam, height) {
+    const L = len / 2, B = beam / 2;
+    const s = new THREE.Shape();
+    s.moveTo(0, L);
+    s.quadraticCurveTo(B, L * 0.45, B, -L * 0.7);
+    s.quadraticCurveTo(B, -L, 0, -L);
+    s.quadraticCurveTo(-B, -L, -B, -L * 0.7);
+    s.quadraticCurveTo(-B, L * 0.45, 0, L);
+    const g = new THREE.ExtrudeGeometry(s, { depth: height, bevelEnabled: false });
+    g.rotateX(-Math.PI / 2); // shape length axis -> Z (bow at -Z), extrusion -> up
+    return g;
+  }
+
   _unitMesh(u) {
     const t = typeOf(u);
     const g = new THREE.Group();
     const color = SIDE_COLORS[u.side], dark = SIDE_DARK[u.side];
     const baseMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 });
     const darkMat = new THREE.MeshStandardMaterial({ color: dark, roughness: 0.55 });
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x4a5560, roughness: 0.8 });
+    const add = (geo, mat, x, y, z, rot) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      if (rot) m.rotation.set(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+      g.add(m);
+      return m;
+    };
 
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.09, 6), baseMat);
     base.position.y = 0.045;
     g.add(base);
 
     let bodyH = 0.3;
-    if (t.cls === 'ground') {
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.2, 0.3), darkMat);
-      body.position.y = 0.19;
-      g.add(body);
-      if (t.armor) {
-        const turret = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.16), baseMat);
-        turret.position.y = 0.34;
-        g.add(turret);
-        const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3), baseMat);
-        gun.rotation.x = Math.PI / 2; gun.position.set(0, 0.34, 0.22);
-        g.add(gun);
-      }
+    if (t.cls === 'ground' && t.fortress) {
+      // island garrison: hexagonal bunker + sandbag ring + shore gun
+      add(new THREE.TorusGeometry(0.32, 0.035, 6, 12), new THREE.MeshStandardMaterial({ color: 0x8a7a55, roughness: 0.95 }), 0, 0.11, 0, [Math.PI / 2, 0, 0]);
+      add(new THREE.CylinderGeometry(0.2, 0.24, 0.14, 6), darkMat, 0, 0.17, 0);
+      add(new THREE.CylinderGeometry(0.23, 0.23, 0.035, 6), baseMat, 0, 0.26, 0);
+      add(new THREE.CylinderGeometry(0.014, 0.014, 0.22), darkMat, 0, 0.2, -0.24, [Math.PI / 2 + 0.18, 0, 0]);
       bodyH = 0.4;
-    } else if (t.cls === 'naval' || t.cls === 'amphib') {
-      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, t.carrier ? 0.85 : 0.68), darkMat);
-      hull.position.y = 0.16;
-      g.add(hull);
-      if (t.carrier) {
-        const deck = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.85), baseMat);
-        deck.position.y = 0.26;
-        g.add(deck);
-      } else {
-        const sup = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.2), baseMat);
-        sup.position.y = 0.29;
-        g.add(sup);
-      }
-      if (t.cls === 'amphib') {
-        const bow = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.2), baseMat);
-        bow.position.set(0, 0.24, -0.2);
-        g.add(bow);
-      }
+    } else if (t.cls === 'ground' && t.armor) {
+      // tank: tracks, hull, turret, long gun
+      add(new THREE.BoxGeometry(0.11, 0.09, 0.42), darkMat, -0.13, 0.14, 0);
+      add(new THREE.BoxGeometry(0.11, 0.09, 0.42), darkMat, 0.13, 0.14, 0);
+      add(new THREE.BoxGeometry(0.3, 0.08, 0.4), baseMat, 0, 0.21, 0);
+      add(new THREE.CylinderGeometry(0.1, 0.12, 0.08, 8), darkMat, 0, 0.29, 0.02);
+      add(new THREE.CylinderGeometry(0.015, 0.015, 0.3), darkMat, 0, 0.3, -0.2, [Math.PI / 2, 0, 0]);
+      bodyH = 0.42;
+    } else if (t.cls === 'ground') {
+      // infantry: a fireteam of little soldiers
+      const soldier = (x, z) => {
+        add(new THREE.CapsuleGeometry(0.045, 0.1, 3, 8), baseMat, x, 0.2, z);
+        add(new THREE.SphereGeometry(0.035, 8, 6), darkMat, x, 0.3, z);
+      };
+      soldier(-0.12, 0.06); soldier(0.12, 0.06); soldier(0, -0.12);
+      bodyH = 0.4;
+    } else if (t.cls === 'naval' && t.carrier) {
+      // flat-top: hull low, overhanging angled flight deck, island to starboard
+      add(this._hullGeo(0.8, 0.2, 0.1), darkMat, 0, 0.09, 0);
+      const deck = add(new THREE.BoxGeometry(0.3, 0.035, 0.98), deckMat, 0, 0.21, 0);
+      add(new THREE.BoxGeometry(0.22, 0.02, 0.5), deckMat, -0.09, 0.24, 0.1, [0, 0.16, 0]);
+      add(new THREE.BoxGeometry(0.07, 0.1, 0.16), baseMat, 0.13, 0.28, 0.14);
+      // aircraft spotted on deck
+      add(new THREE.ConeGeometry(0.03, 0.09, 4), baseMat, 0.05, 0.24, -0.28, [Math.PI / 2, 0, 0]);
+      add(new THREE.ConeGeometry(0.03, 0.09, 4), baseMat, -0.04, 0.24, 0.32, [Math.PI / 2, 0, 0]);
+      g.rotation.y = 0.6;
+      bodyH = 0.4;
+    } else if (t.cls === 'naval') {
+      // surface combatant: shaped hull, deckhouse, bridge, mast, bow gun
+      add(this._hullGeo(0.74, 0.17, 0.1), darkMat, 0, 0.09, 0);
+      add(new THREE.BoxGeometry(0.12, 0.09, 0.3), baseMat, 0, 0.23, 0.02);
+      add(new THREE.BoxGeometry(0.1, 0.07, 0.1), darkMat, 0, 0.31, -0.06);
+      add(new THREE.CylinderGeometry(0.008, 0.008, 0.16), darkMat, 0, 0.4, -0.02);
+      add(new THREE.BoxGeometry(0.06, 0.045, 0.08), baseMat, 0, 0.21, -0.26);
+      g.rotation.y = 0.6;
+      bodyH = 0.42;
+    } else if (t.cls === 'amphib') {
+      // landing ship: boxy hull, blunt bow ramp, aft deckhouse, landing craft on deck
+      add(new THREE.BoxGeometry(0.26, 0.11, 0.58), darkMat, 0, 0.15, 0.02);
+      add(new THREE.BoxGeometry(0.24, 0.03, 0.2), baseMat, 0, 0.24, -0.24, [-0.55, 0, 0]); // ramp
+      add(new THREE.BoxGeometry(0.18, 0.08, 0.14), baseMat, 0, 0.25, 0.22);
+      add(new THREE.BoxGeometry(0.07, 0.035, 0.12), deckMat, -0.06, 0.23, -0.02);
+      add(new THREE.BoxGeometry(0.07, 0.035, 0.12), deckMat, 0.07, 0.23, 0.08);
       g.rotation.y = 0.6;
       bodyH = 0.36;
     } else if (t.cls === 'sub') {
@@ -282,9 +323,10 @@ export class Renderer {
       hull.rotation.z = Math.PI / 2;
       hull.position.y = 0.14;
       g.add(hull);
-      const sail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.06), baseMat);
-      sail.position.y = 0.24;
-      g.add(sail);
+      add(new THREE.BoxGeometry(0.05, 0.1, 0.14), baseMat, 0, 0.23, 0); // sail
+      add(new THREE.BoxGeometry(0.16, 0.015, 0.06), baseMat, 0.28, 0.14, 0); // stern planes
+      add(new THREE.BoxGeometry(0.015, 0.12, 0.06), baseMat, 0.3, 0.16, 0); // rudder
+      g.rotation.y = 0.6 + Math.PI / 2;
       bodyH = 0.3;
     } else if (t.cls === 'air') {
       const body = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.5, 4), baseMat);
@@ -294,6 +336,7 @@ export class Renderer {
       const wing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.14), darkMat);
       wing.position.y = 0.3;
       g.add(wing);
+      add(new THREE.BoxGeometry(0.02, 0.09, 0.09), darkMat, 0, 0.36, 0.2); // tailfin
       bodyH = 0.44;
     }
 

@@ -28,7 +28,7 @@ export const TYPES = {
   rocInf:  { cls: 'ground', name: 'ROC Army Mech-Inf Bde', short: 'INF', mov: 2, rng: 1, hp: 4, att: { grd: 4 }, def: 5 },
   rocRes:  { cls: 'ground', name: 'ROC Reserve Bde', short: 'RES', mov: 1, rng: 1, hp: 3, att: { grd: 2 }, def: 3 },
   rocMar:  { cls: 'ground', name: 'ROC Marine Bde', short: 'MAR', mov: 2, rng: 1, hp: 3, att: { grd: 4 }, def: 4 },
-  rocGar:  { cls: 'ground', name: 'ROC Island Garrison', short: 'GAR', mov: 0, rng: 1, hp: 3, att: { grd: 3 }, def: 6, fortress: true },
+  rocGar:  { cls: 'ground', name: 'ROC Island Garrison', short: 'GAR', mov: 0, rng: 1, hp: 3, att: { grd: 3, sea: 3 }, def: 6, fortress: true, coastal: true },
   rocNav:  { cls: 'naval', name: 'ROCN Flotilla', short: 'FLT', mov: 3, rng: 2, hp: 3, att: { sea: 5 }, def: 4 },
   rocSub:  { cls: 'sub', name: 'ROCN Submarine', short: 'SS', mov: 2, rng: 1, hp: 2, att: { sea: 5 }, def: 4 },
   rocW16:  { cls: 'air', name: 'ROCAF F-16V Wing', short: 'F-16V', hp: 3, airPts: 3, strike: 2, def: 3 },

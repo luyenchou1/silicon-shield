@@ -744,7 +744,33 @@ export function clampTracks(game) {
   game.supply = Math.max(0, Math.min(100, game.supply));
 }
 
+// Fortress garrisons (coastal batteries) fire automatically at the end of the
+// red phase if the player didn't direct their fire — shore guns don't wait for
+// orders. One shot per day either way. Returns events for the fx layer.
+export function garrisonFire(game, map) {
+  const events = [];
+  for (const u of game.units) {
+    if (!u.alive || u.side !== 'blue' || !typeOf(u).fortress || u.attacked) continue;
+    const targets = attackTargets(game, map, u);
+    if (!targets.length) continue;
+    // prioritize loaded flotillas, then whatever is most dangerous
+    targets.sort((a, b) => (b.cargo?.length || 0) - (a.cargo?.length || 0) || b.hp - a.hp);
+    const tgt = targets[0];
+    const a = attackStrength(game, u, tgt) * 0.6; // harassing fire, not an assault
+    const defEff = typeOf(tgt).def * terrainDefMod(map, tgt) * Math.pow(frac(tgt), 0.3);
+    const lost = applyDamage(game, tgt, rollSteps(game, a * (0.7 + rnd(game) * 0.6), defEff));
+    u.attacked = true;
+    events.push({ gar: u, tgt, lost, killed: !tgt.alive });
+    log(game, `${u.name} shore batteries engage ${tgt.name}` +
+      (!tgt.alive ? ' — DESTROYED' : lost ? `: -${lost} step${lost === 1 ? '' : 's'}` : ': shells fall wide'),
+      'combat', 'blue');
+  }
+  if (events.length) captureSweep(game, map);
+  return events;
+}
+
 export function endOfRedPhase(game, map) {
+  const fires = garrisonFire(game, map);
   recomputeAirSup(game, map);
   recomputeBlockade(game, map);
   // Taipei occupation clock
@@ -754,6 +780,7 @@ export function endOfRedPhase(game, map) {
   clampTracks(game);
   checkVictory(game, map);
   if (!game.result) game.turn += 1;
+  return fires;
 }
 
 export function checkVictory(game, map) {

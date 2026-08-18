@@ -164,7 +164,27 @@ export class Fx {
     this.tracer(a, d);
     await this.wait(160);
     this.boom(d, { size: res?.defKilled ? 0.9 : 0.4 });
-    if (res?.atkLost) { await this.wait(120); this.boom(a, { size: 0.35 }); }
+    if (res?.atkLost) {
+      // defender's return fire, made visible
+      await this.wait(120);
+      this.tracer(d, a, 0xa8d0ff);
+      await this.wait(140);
+      this.boom(a, { size: 0.35 });
+    }
+    this._step();
+    await this.wait(260);
+  }
+
+  // garrison shore batteries: a burst of tracers from the island, then impact
+  async garrisonFire(f) {
+    const pos = u => this.r.unitGroups.get(u.id)?.position.clone() || this.r.hexCenter(u.c, u.r);
+    const a = pos(f.gar), d = pos(f.tgt);
+    for (let i = 0; i < 3; i++) {
+      const jitter = new THREE.Vector3((Math.random() - 0.5) * 0.4, 0, (Math.random() - 0.5) * 0.4);
+      this.tracer(a, d.clone().add(jitter), 0xffd27a);
+      await this.wait(110);
+    }
+    this.boom(d, { size: f.killed ? 0.8 : 0.4 });
     this._step();
     await this.wait(260);
   }

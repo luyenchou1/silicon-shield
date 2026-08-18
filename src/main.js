@@ -64,12 +64,8 @@ function drawSelection() {
   const buttons = [];
   if (u.side === 'blue' && !busy && !game.result) {
     if (u.cls === 'air') {
-      const strikes = airStrikeTargets(game, map, u);
-      buttons.push({
-        label: strikes.length ? `Strike (${strikes.length} target${strikes.length === 1 ? '' : 's'})` : 'Strike (no targets)',
-        disabled: !strikes.length,
-        cb: () => enterStrikeMode(u),
-      });
+      // strike targets ring in red, same language as ground attacks — tap to strike
+      for (const t of airStrikeTargets(game, map, u)) renderer.addHexHighlight(t.c, t.r, 0xff5040, 0.9, true);
       buttons.push({
         label: 'Rebase', disabled: !rebaseTargets(game, map, u).length,
         cb: () => enterRebaseMode(u),
@@ -107,20 +103,6 @@ function clearMode() {
   mode = null;
   ui.hint(null);
   drawSelection();
-}
-
-function enterStrikeMode(wing) {
-  const targets = airStrikeTargets(game, map, wing);
-  const keys = new Set(targets.map(t => key(t.c, t.r)));
-  setMode({
-    hint: `${wing.name}: choose a strike target (one mission per day)`,
-    valid: h => keys.has(key(h.c, h.r)),
-    handler: async h => {
-      const t = targets.find(t => t.c === h.c && t.r === h.r);
-      const res = airStrike(game, map, wing, t);
-      await fx.strike(wing, t, res);
-    },
-  });
 }
 
 function enterRebaseMode(wing) {
@@ -251,6 +233,20 @@ async function handleTap(c, r) {
     return;
   }
   const u = sel();
+  if (u && u.side === 'blue' && u.cls === 'air' && !game.result) {
+    // strike? (targets are already ringed in red)
+    const tgt = airStrikeTargets(game, map, u).find(t => t.c === c && t.r === r);
+    if (tgt) {
+      busy = true;
+      try {
+        const res = airStrike(game, map, u, tgt);
+        await fx.strike(u, tgt, res);
+      } finally { busy = false; }
+      checkMidTurnVictory();
+      refreshAll();
+      return;
+    }
+  }
   if (u && u.side === 'blue' && u.cls !== 'air') {
     // move?
     const mv = moveTargets(game, map, u).find(m => m.c === c && m.r === r);
@@ -312,8 +308,9 @@ async function endTurn() {
   let notices = [];
   try {
     await runRedTurn(game, map, fx);
-    endOfRedPhase(game, map);
+    const fires = endOfRedPhase(game, map);
     refreshAll();
+    for (const f of fires) await fx.garrisonFire(f);
     if (!game.result) {
       notices = startTurn(game, map);
       checkVictory(game, map);
@@ -429,10 +426,13 @@ condition of its own.</li>
 <li><b>Bring in the allies.</b> Diplomacy (+CP action) raises US intervention; at 50 the US Navy and
 Guam's bombers join; at 70 Japan opens Kadena. If the PLA strikes US or Japanese forces, entry is immediate.</li>
 <li><b>Submarines</b> are hidden until they fire. Yours ambush the invasion fleet; theirs hunt your carriers.</li>
-<li><b>Air wings fly one mission per day</b> — a strike or a rebase. The Strike button counts targets
-currently in range; the wing's Strike stat is its hitting power. Cratered runways ground the wing until repaired.</li>
-<li><b>Offshore garrisons</b> (Kinmen, Matsu, Penghu Defense Cmds) are immobile fortress commands. They need
-no orders: they defend in place, hit back at adjacent invaders, and make Beijing pay for every island grab.</li>
+<li><b>Air wings fly one mission per day</b> — a strike or a rebase. Select a wing and its eligible
+targets ring in red; tap one to strike. The wing's Strike stat is its hitting power. Cratered runways
+ground the wing until repaired.</li>
+<li><b>Offshore garrisons</b> (Kinmen, Matsu, Penghu Defense Cmds) are immobile fortress commands with
+shore batteries. They need no orders: at the end of every PLA turn they automatically shell an enemy ship
+or brigade in range — or direct their fire yourself during your turn (red rings). Make Beijing pay for
+every island grab.</li>
 </ul>
 <p class="dim">Camera: drag to pan, two-finger/right-drag to rotate, pinch/wheel to zoom. Esc cancels targeting.</p>`;
 
