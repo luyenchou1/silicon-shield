@@ -149,9 +149,11 @@ export class UI {
     if (t.rng) stats.push(`Rng ${t.rng}`);
     if (t.airPts) stats.push(`Air ${t.airPts}`);
     if (t.strike) stats.push(`Strike ${t.strike}`);
+    if (t.fortress) stats.push('Fortress');
     const status = [];
     if (u.side === 'blue') {
       if (u.attacked) status.push('has fired');
+      else if (!t.mov && t.cls === 'ground') status.push('static garrison — defends in place');
       else if (u.moved >= (t.mov || 0) && t.cls !== 'air') status.push('has moved');
       else status.push('ready');
     }

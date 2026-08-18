@@ -17,9 +17,12 @@ python3 -m http.server 8000     # or: npx serve .
 ```
 
 Works on desktop (mouse) and phone/tablet (touch). Rendering is three.js, loaded from
-jsDelivr pinned to 0.185.1 (to play fully offline, download `build/three.module.min.js`,
-`build/three.core.min.js` and `examples/jsm/controls/OrbitControls.js` from the `three`
-npm package into `lib/` and point the import map in `index.html` at them).
+jsDelivr pinned to 0.185.1. **Play online: https://luyenchou1.github.io/silicon-shield/**
+
+To play fully offline, use `silicon-shield.html` — a standalone single-file build with
+three.js inlined that runs straight from `file://`. Regenerate it after source changes
+with `node build-standalone.mjs` (needs `npm i -D esbuild`; the pinned three files are
+vendored in `lib/`).
 
 - **Camera** — drag to pan, right-drag / two-finger drag to rotate, wheel / pinch to zoom
 - **Orders** — tap a unit to select it; tap a white hex to move, a red ring to attack
