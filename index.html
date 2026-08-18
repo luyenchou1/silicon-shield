@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Silicon Shield — The Battle for Taiwan</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <div id="scene"></div>
+
+    <header id="topbar">
+      <div id="brand">SILICON<span>SHIELD</span></div>
+      <div id="turninfo">
+        <span id="dayLabel">D+1</span>
+        <span id="cpLabel">CP 6</span>
+      </div>
+      <div id="topbtns">
+        <button id="endTurnBtn" class="primary">End Turn ⏵</button>
+        <button id="menuBtn" title="Menu">☰</button>
+      </div>
+    </header>
+
+    <aside id="tracks"></aside>
+
+    <div id="hintBar" class="hidden"><span></span><button id="hintCancel">✕</button></div>
+
+    <section id="unitPanel" class="hidden">
+      <button id="unitClose">✕</button>
+      <h3 id="unitName"></h3>
+      <div id="unitType"></div>
+      <div id="unitHp"></div>
+      <div id="unitStats"></div>
+      <div id="unitStatus"></div>
+      <div id="unitExtra"></div>
+      <div id="unitButtons"></div>
+    </section>
+
+    <nav id="actionBar"></nav>
+
+    <section id="logPanel">
+      <button id="logToggle"><span id="logLatest">Situation reports…</span></button>
+      <div id="logEntries"></div>
+    </section>
+
+    <div id="bannerLayer"></div>
+    <div id="modalLayer" class="hidden"></div>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

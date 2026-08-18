@@ -1,0 +1,218 @@
+// Battle effects: missile arcs, explosions, tracers. Implements the async fx
+// interface the red AI (and blue actions) await between steps, so the war is
+// watchable. `speed` scales all durations; the Skip button cranks it up.
+
+import * as THREE from 'three';
+
+export class Fx {
+  constructor(renderer, ui, audio = null) {
+    this.r = renderer;
+    this.ui = ui;
+    this.audio = audio;
+    this.speed = 1;
+    this.active = [];
+    renderer._tickFx = dt => this.tick(dt);
+    this.onStep = null; // callback: HUD refresh between AI steps
+  }
+
+  _sfx(name) {
+    if (this.audio && this.speed < 8) this.audio.sfx(name);
+  }
+
+  tick(dt) {
+    dt *= this.speed;
+    this.active = this.active.filter(e => e.update(dt));
+  }
+
+  wait(ms) {
+    if (this.speed >= 8) ms = Math.min(ms, 40);
+    return new Promise(res => setTimeout(res, ms / this.speed));
+  }
+
+  _step() { this.onStep?.(); }
+
+  // ------------------------------------------------------------ primitives
+  boom(pos, { size = 0.5, color = 0xffa03c, dur = 0.5 } = {}) {
+    this._sfx(size >= 0.7 ? 'bigboom' : 'boom');
+    const geo = new THREE.IcosahedronGeometry(0.2, 1);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(pos);
+    this.r.fxLayer.add(m);
+    let t = 0;
+    this.active.push({
+      update: dt => {
+        t += dt / dur;
+        m.scale.setScalar(0.3 + t * size * 3);
+        mat.opacity = Math.max(0, 0.95 * (1 - t));
+        if (t >= 1) { this.r.fxLayer.remove(m); return false; }
+        return true;
+      },
+    });
+    const flash = new THREE.PointLight(color, 8, 6);
+    flash.position.copy(pos).add(new THREE.Vector3(0, 0.5, 0));
+    this.r.fxLayer.add(flash);
+    let ft = 0;
+    this.active.push({
+      update: dt => {
+        ft += dt / (dur * 0.7);
+        flash.intensity = Math.max(0, 8 * (1 - ft));
+        if (ft >= 1) { this.r.fxLayer.remove(flash); return false; }
+        return true;
+      },
+    });
+  }
+
+  arc(from, to, { color = 0xffd27a, dur = 0.7, apex = 3 } = {}) {
+    this._sfx('launch');
+    const mid = from.clone().add(to).multiplyScalar(0.5);
+    mid.y += apex;
+    const curve = new THREE.QuadraticBezierCurve3(from.clone().add(new THREE.Vector3(0, 0.2, 0)), mid, to);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 6, 6),
+      new THREE.MeshBasicMaterial({ color: 0xfff5df })
+    );
+    const trailGeo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(24));
+    const trailMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0 });
+    const trail = new THREE.Line(trailGeo, trailMat);
+    trail.geometry.setDrawRange(0, 0);
+    this.r.fxLayer.add(head, trail);
+    let t = 0;
+    return new Promise(resolve => {
+      this.active.push({
+        update: dt => {
+          t += dt / dur;
+          const tt = Math.min(1, t);
+          head.position.copy(curve.getPoint(tt));
+          trail.geometry.setDrawRange(0, Math.floor(tt * 24) + 1);
+          trailMat.opacity = 0.8 * (1 - tt * 0.5);
+          if (t >= 1.15) {
+            this.r.fxLayer.remove(head); this.r.fxLayer.remove(trail);
+            resolve();
+            return false;
+          }
+          return true;
+        },
+      });
+    });
+  }
+
+  tracer(from, to, color = 0xfff0b0) {
+    this._sfx('gun');
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      from.clone().add(new THREE.Vector3(0, 0.3, 0)),
+      to.clone().add(new THREE.Vector3(0, 0.3, 0)),
+    ]);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 1 });
+    const line = new THREE.Line(geo, mat);
+    this.r.fxLayer.add(line);
+    let t = 0;
+    this.active.push({
+      update: dt => {
+        t += dt / 0.4;
+        mat.opacity = Math.max(0, 1 - t);
+        if (t >= 1) { this.r.fxLayer.remove(line); return false; }
+        return true;
+      },
+    });
+  }
+
+  // -------------------------------------------------- composite (AI-facing)
+  async banner(text) {
+    if (this.audio) this.audio.sfx('drum');
+    this.ui.banner(text);
+    await this.wait(900);
+  }
+
+  async missiles(hex, res) {
+    const to = this.r.hexCenter(hex.c, hex.r);
+    const from = this.r.hexCenter(2, Math.max(0, Math.min(21, hex.r - 1)));
+    const n = Math.min(5, 1 + Math.floor((res?.n || 10) / 15));
+    const arcs = [];
+    for (let i = 0; i < n; i++) {
+      const jitter = new THREE.Vector3((Math.random() - 0.5) * 1.2, 0, (Math.random() - 0.5) * 1.2);
+      arcs.push(this.arc(from.clone().add(jitter.clone().multiplyScalar(2)), to.clone().add(jitter), { apex: 4 + i * 0.4 })
+        .then(() => this.boom(to.clone().add(jitter), { size: 0.5 })));
+      await this.wait(90);
+    }
+    await Promise.all(arcs);
+    this._step();
+    await this.wait(150);
+  }
+
+  async asbm(target, res) {
+    const to = this.r.hexCenter(target.c, target.r);
+    const from = this.r.hexCenter(1, 5);
+    await this.arc(from, to, { color: 0xff8060, apex: 7, dur: 0.9 });
+    this.boom(to, { size: res?.steps ? 0.9 : 0.4, color: res?.steps ? 0xff5030 : 0x88bbee });
+    this._step();
+    await this.wait(250);
+  }
+
+  async strike(wing, target, res) {
+    const from = this.r.hexCenter(wing.c, wing.r);
+    const to = this.r.hexCenter(target.c, target.r);
+    await this.arc(from, to, { color: 0xa8d0ff, apex: 1.6, dur: 0.5 });
+    this.boom(to, { size: 0.45 });
+    this._step();
+    await this.wait(180);
+  }
+
+  async attack(atk, def, res) {
+    const a = this.r.hexCenter(atk.c, atk.r);
+    const d = this.r.hexCenter(def.c, def.r);
+    this.tracer(a, d);
+    await this.wait(160);
+    this.boom(d, { size: res?.defKilled ? 0.9 : 0.4 });
+    if (res?.atkLost) { await this.wait(120); this.boom(a, { size: 0.35 }); }
+    this._step();
+    await this.wait(260);
+  }
+
+  async moved(u) {
+    this._step();
+    await this.wait(230);
+  }
+
+  async landing(flot, hex, results) {
+    this._sfx('klaxon');
+    const from = this.r.hexCenter(flot.c, flot.r);
+    const to = this.r.hexCenter(hex.c, hex.r);
+    // landing craft waves
+    for (let i = 0; i < 3; i++) {
+      const craft = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.07, 0.22),
+        new THREE.MeshBasicMaterial({ color: 0xc46a5a })
+      );
+      craft.position.copy(from);
+      this.r.fxLayer.add(craft);
+      const off = new THREE.Vector3((Math.random() - 0.5) * 0.7, 0, (Math.random() - 0.5) * 0.7);
+      const dest = to.clone().add(off);
+      let t = 0;
+      this.active.push({
+        update: dt => {
+          t += dt / 1.1;
+          craft.position.lerpVectors(from, dest, Math.min(1, t));
+          if (t >= 1) { this.r.fxLayer.remove(craft); this.boom(dest, { size: 0.35 }); return false; }
+          return true;
+        },
+      });
+      await this.wait(160);
+    }
+    await this.wait(900);
+    for (const r of results || []) {
+      if (r.kind === 'mine') this.boom(to.clone().add(new THREE.Vector3(0.3, 0, 0.4)), { size: 0.7, color: 0x7fd0ff });
+    }
+    this._step();
+    await this.wait(300);
+  }
+
+  async drop(u, hex, res) {
+    const to = this.r.hexCenter(hex.c, hex.r);
+    const from = to.clone().add(new THREE.Vector3(-6, 5, -2));
+    await this.arc(from, to, { color: 0xdddddd, apex: 1, dur: 0.8 });
+    this.boom(to, { size: 0.4, color: 0xcccccc });
+    this._step();
+    await this.wait(250);
+  }
+}
