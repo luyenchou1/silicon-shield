@@ -26,6 +26,9 @@ vendored in `lib/`).
 
 - **Camera** — drag to pan, right-drag / two-finger drag to rotate, wheel / pinch to zoom
 - **Orders** — tap a unit to select it; tap a white hex to move, a red ring to attack
+- **Situation report** — after every PLA turn: your losses (with causes), damage, and track shifts
+- **Learn the theater** — every unit and named place has an ℹ️ About brief: the real-world
+  system or geography behind it, and its role in the game
 - **Action bar** — strategic actions (diplomacy, reserves, mines, convoys) and deep fires
   (coastal missiles, LRASM, Tomahawks)
 - **End Turn** — the PLA takes its turn (tap again to fast-forward), then a new day begins

@@ -6,6 +6,18 @@ import { ACTIONS, weatherNow, baseDamageAt } from './rules.js';
 
 const $ = id => document.getElementById(id);
 
+// glance icon for a unit type — echoed in the panel so you can see at once
+// what kind of thing you have selected
+export function unitIcon(t) {
+  if (t.cls === 'air') return '✈️';
+  if (t.cls === 'sub') return '⚓';
+  if (t.cls === 'amphib') return '🛳️';
+  if (t.cls === 'naval') return '🚢';
+  if (t.fortress) return '🏰';
+  if (t.armor) return '🛡️';
+  return '🪖';
+}
+
 export class UI {
   constructor(audio = null) {
     this.audio = audio;
@@ -136,7 +148,7 @@ export class UI {
   }
 
   // ---------------------------------------------------------- unit panel
-  showUnit(game, u, extra = '') {
+  showUnit(game, u, extra = '', stack = null) {
     const panel = $('unitPanel');
     if (!u) { panel.classList.add('hidden'); return; }
     const t = typeOf(u);
@@ -159,14 +171,43 @@ export class UI {
     }
     if (u.cargo?.length) status.push(`carrying ${u.cargo.length} bde`);
     if (u.cls === 'sub' && u.hidden) status.push('submerged');
+    if (stack && stack.n > 1) status.push(`unit ${stack.idx} of ${stack.n} in hex — tap again to cycle`);
     panel.classList.remove('hidden');
-    panel.querySelector('#unitName').textContent = u.name;
+    panel.querySelector('#unitName').textContent = `${unitIcon(t)} ${u.name}`;
     panel.querySelector('#unitName').className = u.side === 'red' ? 'red' : 'blue';
     panel.querySelector('#unitType').textContent = t.name;
     panel.querySelector('#unitHp').textContent = pips;
     panel.querySelector('#unitStats').textContent = stats.join(' · ');
     panel.querySelector('#unitStatus').textContent = status.join(' · ');
     panel.querySelector('#unitExtra').innerHTML = extra;
+  }
+
+  // location card: tapping an empty named hex shows the place itself
+  showLocation(game, map, hex) {
+    const panel = $('unitPanel');
+    const loc = hex.loc;
+    panel.classList.remove('hidden');
+    panel.querySelector('#unitName').textContent = `📍 ${loc.name}`;
+    panel.querySelector('#unitName').className = loc.side === 'red' ? 'red' : 'blue';
+    const feats = [];
+    if (loc.capital) feats.push('capital');
+    if (loc.airbase) feats.push('airbase');
+    if (loc.port) feats.push('port');
+    if (loc.navalbase) feats.push('naval base');
+    if (loc.staging) feats.push('staging area');
+    if (loc.beach) feats.push('landing beach');
+    if (loc.fabs) feats.push('semiconductor fabs');
+    if (loc.shelters) feats.push('mountain shelters');
+    if (loc.island || loc.fortified) feats.push('fortified island');
+    panel.querySelector('#unitType').textContent = hex.t.name;
+    panel.querySelector('#unitHp').textContent = '';
+    panel.querySelector('#unitStats').textContent = feats.join(' · ');
+    panel.querySelector('#unitStatus').textContent = '';
+    const bits = [];
+    const dmg = baseDamageAt(game, hex.c, hex.r);
+    if (dmg > 0) bits.push(`infrastructure damage ${'▮'.repeat(Math.round(dmg))}`);
+    if (game.mines[`${hex.c},${hex.r}`]) bits.push(`minefield ×${game.mines[`${hex.c},${hex.r}`]}`);
+    panel.querySelector('#unitExtra').innerHTML = bits.join('<br>');
   }
 
   setUnitButtons(buttons) {

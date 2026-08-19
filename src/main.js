@@ -14,7 +14,8 @@ import {
 import { runRedTurn } from './ai.js';
 import { Renderer } from './render.js';
 import { Fx } from './fx.js';
-import { UI } from './ui.js';
+import { UI, unitIcon } from './ui.js';
+import { TYPE_INTEL, LOC_INTEL } from './intel.js';
 import { AudioEngine } from './audio.js';
 import { DIFFICULTY } from './data.js';
 
@@ -60,7 +61,11 @@ function drawSelection() {
   if (!u) { ui.showUnit(null, null); return; }
   renderer.selectRing(u.c, u.r);
   const extra = ui.hexInfo(game, map, u.c, u.r);
-  ui.showUnit(game, u, extra);
+  // stack awareness: same friendly-first order selectAt cycles through
+  const stackAll = unitsAt(game, u.c, u.r).filter(x => visibleTo(x, 'blue'))
+    .sort((a, b) => (a.side === 'blue' ? 0 : 1) - (b.side === 'blue' ? 0 : 1));
+  const stack = stackAll.length > 1 ? { idx: stackAll.findIndex(x => x.id === u.id) + 1, n: stackAll.length } : null;
+  ui.showUnit(game, u, extra, stack);
   const buttons = [];
   if (u.side === 'blue' && !busy && !game.result) {
     if (u.cls === 'air') {
@@ -76,12 +81,34 @@ function drawSelection() {
       for (const t of attackTargets(game, map, u)) renderer.addHexHighlight(t.c, t.r, 0xff5040, 0.9, true);
     }
   }
+  const brief = TYPE_INTEL[u.tid];
+  if (brief) {
+    buttons.push({
+      label: 'ℹ️ About',
+      cb: () => ui.modal({ title: `${unitIcon(typeOf(u))} ${typeOf(u).name}`, body: brief, wide: true }),
+    });
+  }
   ui.setUnitButtons(buttons);
 }
 
 function selectAt(c, r) {
   const stack = unitsAt(game, c, r).filter(u => visibleTo(u, 'blue'));
-  if (!stack.length) { selId = null; drawSelection(); return; }
+  if (!stack.length) {
+    selId = null;
+    drawSelection();
+    const hex = map.get(c, r);
+    if (hex?.loc) {
+      // no unit here — show the place itself, with its intel brief
+      renderer.selectRing(c, r);
+      ui.showLocation(game, map, hex);
+      const brief = LOC_INTEL[hex.loc.name];
+      ui.setUnitButtons(brief ? [{
+        label: 'ℹ️ About',
+        cb: () => ui.modal({ title: `📍 ${hex.loc.name}`, body: brief, wide: true }),
+      }] : []);
+    }
+    return;
+  }
   // cycle through the stack on repeat taps, friendlies first
   stack.sort((a, b) => (a.side === 'blue' ? 0 : 1) - (b.side === 'blue' ? 0 : 1));
   const idx = stack.findIndex(u => u.id === selId);
@@ -306,6 +333,14 @@ async function endTurn() {
   const skipper = () => { fx.speed = 12; };
   btn.addEventListener('click', skipper);
   let notices = [];
+  // snapshot the world before the PLA moves, so the situation report can
+  // explain exactly what the red phase cost each side
+  const reportTurn = game.turn;
+  const snap = {
+    units: new Map(game.units.map(u => [u.id, { alive: u.alive, hp: u.hp }])),
+    tracks: { intv: game.intervention, tw: game.twWill, prc: game.prcWill, sup: game.supply },
+    grounded: groundedAirbases(),
+  };
   try {
     await runRedTurn(game, map, fx);
     const fires = endOfRedPhase(game, map);
@@ -324,6 +359,10 @@ async function endTurn() {
     refreshAll();
   }
   if (game.result) { showResult(); return; }
+  const sitrep = buildSitrep(snap, reportTurn);
+  if (sitrep) {
+    await ui.modal({ title: `📋 D+${reportTurn} Situation Report`, body: sitrep, wide: true });
+  }
   for (const n of notices) {
     if (n.kind === 'event') {
       audio.sfx('chime');
@@ -332,6 +371,64 @@ async function endTurn() {
   }
   if (game.result) { showResult(); return; }
   ui.banner(`D+${game.turn} — YOUR ORDERS, COMMANDER`, 'blue');
+}
+
+// -------------------------------------------------- situation report
+function groundedAirbases() {
+  const out = [];
+  for (const h of map.hexes.values()) {
+    if (h.loc?.airbase && h.t.region !== 'prc' && baseDamageAt(game, h.c, h.r) >= 3.5) out.push(h.loc.name);
+  }
+  return out;
+}
+
+function buildSitrep(snap, reportTurn) {
+  const changed = u => snap.units.get(u.id);
+  const lostBy = side => game.units.filter(u => changed(u)?.alive && !u.alive && u.side === side);
+  const damagedBy = side => game.units
+    .filter(u => changed(u)?.alive && u.alive && u.hp < changed(u).hp && u.side === side)
+    .map(u => ({ u, d: changed(u).hp - u.hp }));
+  // the log line that mentions a dead unit IS the explanation of what killed it
+  const causeOf = u => {
+    const e = [...game.log].reverse().find(e => e.turn === reportTurn && e.text.includes(u.name));
+    return e ? e.text : 'lost in action';
+  };
+
+  const rows = [];
+  const section = (title, items) => {
+    if (items.length) rows.push(`<h3 class="aar-h">${title}</h3>` + items.join(''));
+  };
+
+  section('Your losses', lostBy('blue').map(u =>
+    `<div class="aar-t"><span class="aar-day">${unitIcon(typeOf(u))}</span><b>${u.name}</b> — ${causeOf(u)}</div>`));
+  section('Your units damaged', damagedBy('blue').map(({ u, d }) =>
+    `<div class="aar-t"><span class="aar-day">${unitIcon(typeOf(u))}</span>${u.name} −${d} step${d === 1 ? '' : 's'} (${u.hp} left)</div>`));
+  section('Enemy losses', lostBy('red').map(u =>
+    `<div class="aar-t"><span class="aar-day">${unitIcon(typeOf(u))}</span><b>${u.name}</b> — ${causeOf(u)}</div>`));
+
+  const nowGrounded = groundedAirbases().filter(n => !snap.grounded.includes(n));
+  section('Airbases knocked out', nowGrounded.map(n =>
+    `<div class="aar-t"><span class="aar-day">🛬</span><b>${n}</b> — runways cratered; wings there are grounded until repaired</div>`));
+
+  const tr = [];
+  const delta = (label, before, after) => {
+    const d = Math.round(after) - Math.round(before);
+    if (d) tr.push(`<div class="aar-t"><span class="aar-day">${d > 0 ? '▲' : '▼'}</span>${label} ${Math.round(before)} → ${Math.round(after)} (${d > 0 ? '+' : ''}${d})</div>`);
+  };
+  delta('US intervention', snap.tracks.intv, game.intervention);
+  delta('Taiwan resolve', snap.tracks.tw, game.twWill);
+  delta('PRC resolve', snap.tracks.prc, game.prcWill);
+  delta('Island supply', snap.tracks.sup, game.supply);
+  section('Strategic tracks', tr);
+
+  const seen = new Set();
+  const keyEvents = game.log
+    .filter(e => e.turn === reportTurn && ['alert', 'political'].includes(e.kind))
+    .filter(e => { const k = e.text.slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 8);
+  section('Developments', keyEvents.map(e => `<div class="aar-t"><span class="aar-day">•</span>${e.text}</div>`));
+
+  return rows.length ? rows.join('') : null;
 }
 
 // ------------------------------------------------------- after-action report
@@ -432,7 +529,12 @@ ground the wing until repaired.</li>
 <li><b>Offshore garrisons</b> (Kinmen, Matsu, Penghu Defense Cmds) are immobile fortress commands with
 shore batteries. They need no orders: at the end of every PLA turn they automatically shell an enemy ship
 or brigade in range — or direct their fire yourself during your turn (red rings). Make Beijing pay for
-every island grab.</li>
+every island grab. The USMC Littoral Regiment on Luzon works the same way over the Bashi Channel.</li>
+<li><b>Situation report.</b> After every PLA turn you get a summary of what it cost: units lost (and
+what killed them), damage taken, airbases knocked out, and track movement. The full log is always at
+the bottom of the screen.</li>
+<li><b>Learn the theater.</b> Every unit and named place has an ℹ️ About brief — the real-world system
+or geography behind it and what it does in the game. Tap any unit, or any empty named hex, and hit About.</li>
 </ul>
 <p class="dim">Camera: drag to pan, two-finger/right-drag to rotate, pinch/wheel to zoom. Esc cancels targeting.</p>`;
 

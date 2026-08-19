@@ -149,13 +149,62 @@ export class Fx {
     await this.wait(250);
   }
 
+  // a visible sortie: jets launch, fly to the target, strike, and recover home
+  _jetMesh(side) {
+    const color = side === 'red' ? 0xe86a5e : 0x7ab4ff;
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 4), new THREE.MeshBasicMaterial({ color }));
+    body.rotation.x = Math.PI / 2;
+    g.add(body);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.015, 0.09), new THREE.MeshBasicMaterial({ color }));
+    wing.position.z = 0.03;
+    g.add(wing);
+    return g;
+  }
+
+  _fly(obj, from, to, dur, apex = 1.4) {
+    const mid = from.clone().add(to).multiplyScalar(0.5);
+    mid.y = Math.max(from.y, to.y) + apex;
+    const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+    let t = 0;
+    return new Promise(resolve => {
+      this.active.push({
+        update: dt => {
+          t += dt / dur;
+          const tt = Math.min(1, t);
+          obj.position.copy(curve.getPoint(tt));
+          const ahead = curve.getPoint(Math.min(1, tt + 0.02));
+          obj.lookAt(ahead);
+          if (t >= 1) { resolve(); return false; }
+          return true;
+        },
+      });
+    });
+  }
+
   async strike(wing, target, res) {
-    const from = this.r.hexCenter(wing.c, wing.r);
-    const to = this.r.hexCenter(target.c, target.r);
-    await this.arc(from, to, { color: 0xa8d0ff, apex: 1.6, dur: 0.5 });
-    this.boom(to, { size: 0.45 });
+    const from = this.r.hexCenter(wing.c, wing.r).add(new THREE.Vector3(0, 0.3, 0));
+    const to = this.r.hexCenter(target.c, target.r).add(new THREE.Vector3(0, 0.5, 0));
+    this._sfx('launch');
+    const jets = [this._jetMesh(wing.side), this._jetMesh(wing.side)];
+    jets[1].scale.setScalar(0.8);
+    for (const j of jets) this.r.fxLayer.add(j);
+    const wingman = from.clone().add(new THREE.Vector3(0.35, 0.08, 0.25));
+    const outbound = [
+      this._fly(jets[0], from.clone(), to.clone(), 0.7),
+      this._fly(jets[1], wingman, to.clone().add(new THREE.Vector3(0.3, 0.05, 0.2)), 0.74),
+    ];
+    await Promise.all(outbound);
+    this.boom(this.r.hexCenter(target.c, target.r), { size: 0.45 });
+    if (res?.attrition) this.boom(to.clone(), { size: 0.3, color: 0xff7043 });
+    const inbound = [
+      this._fly(jets[0], to.clone(), from.clone(), 0.7),
+      this._fly(jets[1], to.clone().add(new THREE.Vector3(0.3, 0.05, 0.2)), wingman.clone(), 0.74),
+    ];
+    await Promise.all(inbound);
+    for (const j of jets) this.r.fxLayer.remove(j);
     this._step();
-    await this.wait(180);
+    await this.wait(150);
   }
 
   async attack(atk, def, res) {

@@ -159,8 +159,10 @@ export function attackStrength(game, atk, def) {
 export function attackTargets(game, map, u) {
   const t = typeOf(u);
   if (u.attacked || !t.rng) return [];
+  // "Manila Opens the Gates" extends the Littoral Regiment's missile reach
+  const rng = t.rng + (game.mlrBonus && t.short === 'MLR' ? 1 : 0);
   const out = [];
-  for (const h of hexesInRange(u.c, u.r, t.rng)) {
+  for (const h of hexesInRange(u.c, u.r, rng)) {
     if (!map.inBounds(h.c, h.r)) continue;
     for (const e of unitsAt(game, h.c, h.r)) {
       if ((e.side === 'red') === (u.side === 'red')) continue;
@@ -744,13 +746,16 @@ export function clampTracks(game) {
   game.supply = Math.max(0, Math.min(100, game.supply));
 }
 
-// Fortress garrisons (coastal batteries) fire automatically at the end of the
-// red phase if the player didn't direct their fire — shore guns don't wait for
-// orders. One shot per day either way. Returns events for the fx layer.
+// Static defenses (fortress garrisons, immobile coastal missile batteries)
+// fire automatically at the end of the red phase if the player didn't direct
+// their fire — shore guns don't wait for orders. One shot per day either way.
+// Returns events for the fx layer.
 export function garrisonFire(game, map) {
   const events = [];
   for (const u of game.units) {
-    if (!u.alive || u.side !== 'blue' || !typeOf(u).fortress || u.attacked) continue;
+    if (!u.alive || u.side !== 'blue' || u.attacked) continue;
+    const t = typeOf(u);
+    if (!t.fortress && !(t.coastal && !t.mov)) continue;
     const targets = attackTargets(game, map, u);
     if (!targets.length) continue;
     // prioritize loaded flotillas, then whatever is most dangerous

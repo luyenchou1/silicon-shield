@@ -105,6 +105,12 @@ export class Renderer {
       this.renderer.render(this.scene, this.camera);
     };
     loop();
+    // rAF pauses in hidden tabs, which would freeze awaited battle animations
+    // mid-turn; keep the fx clock (not rendering) alive so the AI turn finishes
+    setInterval(() => {
+      if (!document.hidden) return;
+      this._tickFx?.(Math.min(this.clock.getDelta(), 0.25));
+    }, 120);
   }
 
   _resize() {
