@@ -41,6 +41,14 @@ export class UI {
     next.textContent = '⏭ Next';
     next.addEventListener('click', () => { audio?.sfx('tick'); this.onNextUnit?.(); });
     $('topbtns').insertBefore(next, $('endTurnBtn'));
+    this.onUndo = null; // take back the last move/rebase (never combat)
+    const undo = document.createElement('button');
+    undo.id = 'undoBtn';
+    undo.title = 'Undo last move';
+    undo.textContent = '↩';
+    undo.disabled = true;
+    undo.addEventListener('click', () => { audio?.sfx('tick'); this.onUndo?.(); });
+    $('topbtns').insertBefore(undo, next);
     if (audio) {
       const mute = document.createElement('button');
       mute.id = 'muteBtn';
@@ -135,6 +143,8 @@ export class UI {
     $('cpLabel').textContent = `CP ${game.cp}`;
     $('endTurnBtn').disabled = game.phase !== 'blue' || !!game.result;
   }
+
+  setUndoEnabled(on) { $('undoBtn').disabled = !on; }
 
   // ---------------------------------------------------------- action bar
   _buildActionBar() {

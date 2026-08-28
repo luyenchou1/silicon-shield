@@ -33,6 +33,7 @@ let game = null, map = null, renderer = null, fx = null, ui = null, audio = null
 let selId = null;        // selected unit id
 let mode = null;         // targeting mode {hint, valid:(hex)=>bool, handler:(hex)=>Promise}
 let busy = false;        // red turn / animation lock
+let undoStack = [];      // pre-move snapshots; combat and CP actions clear it
 
 // ------------------------------------------------------------------ helpers
 const sel = () => game?.units.find(u => u.id === selId && u.alive && !u.embarkedIn) || null;
@@ -43,7 +44,28 @@ function refreshAll() {
   ui.refreshTracks(game);
   ui.refreshActions(game);
   ui.refreshLog(game);
+  ui.setUndoEnabled(!busy && undoStack.length > 0 && game.phase === 'blue' && !game.result);
   drawSelection();
+}
+
+// Undo covers repositioning only — moves and rebases have no dice in them.
+// Anything with a combat roll or a CP spend wipes the stack (RNG position is
+// serialized, so undo can never be used to re-roll an outcome anyway).
+function pushUndo() {
+  undoStack.push(serialize(game));
+  if (undoStack.length > 12) undoStack.shift();
+}
+
+function clearUndo() { undoStack = []; }
+
+function undoMove() {
+  if (busy || !undoStack.length || game.phase !== 'blue' || game.result) return;
+  ({ game, map } = deserialize(undoStack.pop()));
+  renderer.map = map;
+  selId = null; mode = null;
+  ui.hint(null);
+  save();
+  refreshAll();
 }
 
 function save() {
@@ -126,6 +148,34 @@ function unitsWithOrders() {
   });
 }
 
+// ---------------------------------------------------------------- advisor
+// Lightweight coaching on easy/normal: read the board, surface at most two
+// things a staff officer would flag. Hard difficulty gets no hand-holding.
+function advisorTips() {
+  if (!game || game.result || game.difficulty === 'hard') return [];
+  const tips = [];
+  const loadedAmphibs = game.units.filter(u => u.alive && u.cls === 'amphib' && u.cargo?.length && visibleTo(u, 'blue'));
+  const beaches = [...map.hexes.values()].filter(h => h.loc?.beach && controllerOf(game, h) === 'blue');
+  const unmined = beaches.filter(h => !((game.mines[key(h.c, h.r)] || 0) > 0));
+  if (loadedAmphibs.length && unmined.length >= 3 && game.cp >= ACTIONS.mines.cp) {
+    tips.push(`💣 ${unmined.length} landing beaches are unmined while the invasion fleet is still afloat — mines bleed every wave that comes ashore.`);
+  }
+  if (game.pools.ascm > 0 && loadedAmphibs.some(u => distToTaiwan(map, u.c, u.r) <= 3)) {
+    tips.push('🚀 Loaded troop flotillas are inside coastal-missile range. Every flotilla sunk is two brigades that never land.');
+  }
+  const parked = game.units.find(u => u.alive && u.side === 'blue' && u.cls === 'air' && baseDamageAt(game, u.c, u.r) >= 2);
+  if (parked) {
+    tips.push(`✈️ ${parked.name} sits on damaged runways — Repair the base or Rebase the wing before the next volley grounds it.`);
+  }
+  if (!game.usEntered && game.intervention < 50 && game.cp >= ACTIONS.lobby.cp) {
+    tips.push(`🤝 US intervention is at ${Math.round(game.intervention)} — Diplomacy pushes it toward 50, when the Seventh Fleet sails.`);
+  }
+  if (game.supply < 40) {
+    tips.push('🚢 Island supply is running low. Run a Convoy, and hunt the blockading fleet — at zero supply, resolve bleeds fast.');
+  }
+  return tips.slice(0, 2);
+}
+
 function nextUnit() {
   if (busy || !game || game.result || game.phase !== 'blue') return;
   clearMode();
@@ -161,7 +211,7 @@ function enterRebaseMode(wing) {
     hint: `${wing.name}: choose a new base`,
     color: 0x50c0ff,
     valid: h => keys.has(key(h.c, h.r)),
-    handler: async h => { doRebase(game, map, wing, h.c, h.r); },
+    handler: async h => { pushUndo(); doRebase(game, map, wing, h.c, h.r); },
   });
 }
 
@@ -286,6 +336,7 @@ async function handleTap(c, r) {
     // strike? (targets are already ringed in red)
     const tgt = airStrikeTargets(game, map, u).find(t => t.c === c && t.r === r);
     if (tgt) {
+      clearUndo();
       busy = true;
       try {
         const res = airStrike(game, map, u, tgt);
@@ -314,10 +365,11 @@ async function handleTap(c, r) {
             { label: 'Cancel', value: null },
           ],
         });
-        if (pick === 'move') { doMove(game, map, u, c, r); refreshAll(); }
+        if (pick === 'move') { pushUndo(); doMove(game, map, u, c, r); refreshAll(); }
         else if (pick === 'select') { selId = others[0].id; drawSelection(); }
         return;
       }
+      pushUndo();
       doMove(game, map, u, c, r);
       refreshAll();
       return;
@@ -325,6 +377,7 @@ async function handleTap(c, r) {
     // attack?
     const tgt = attackTargets(game, map, u).find(t => t.c === c && t.r === r);
     if (tgt) {
+      clearUndo();
       busy = true;
       try {
         const res = resolveCombat(game, map, u, tgt);
@@ -362,6 +415,7 @@ async function endTurn() {
     if (go === 'stay') return;
     if (go === 'never') game.noEndTurnWarn = true;
   }
+  clearUndo();
   busy = true;
   selId = null; clearMode();
   const btn = document.getElementById('endTurnBtn');
@@ -465,6 +519,8 @@ function buildSitrep(snap, reportTurn) {
     .filter(e => { const k = e.text.slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
     .slice(0, 8);
   section('Developments', keyEvents.map(e => `<div class="aar-t"><span class="aar-day">•</span>${e.text}</div>`));
+
+  section('Advisor', advisorTips().map(t => `<div class="aar-t"><span class="aar-day">🎓</span>${t}</div>`));
 
   return rows.length ? rows.join('') : null;
 }
@@ -606,8 +662,20 @@ async function bootMenu() {
   // (re)bind world to renderer
   renderer.map = map;
   selId = null; mode = null; busy = false;
+  clearUndo();
   refreshAll();
   ui.banner(`D+${game.turn} — YOUR ORDERS, COMMANDER`, 'blue');
+  // ease the first-game cliff: opening guidance on the training difficulty
+  if (choice === 'easy') {
+    const tips = advisorTips();
+    if (tips.length) {
+      await ui.modal({
+        title: '🎓 Advisor — opening moves',
+        body: tips.map(t => `<p>${t}</p>`).join(''),
+        buttons: [{ label: 'Understood', value: true, primary: true }],
+      });
+    }
+  }
 }
 
 async function menu() {
@@ -642,9 +710,11 @@ function boot() {
   ui.onEndTurn = endTurn;
   ui.onMenu = menu;
   ui.onNextUnit = nextUnit;
+  ui.onUndo = undoMove;
   ui.onUnitClose = () => { selId = null; drawSelection(); };
   ui.onAction = id => {
     if (busy || !game || game.result || game.phase !== 'blue') return;
+    clearUndo(); // CP actions and fires are not take-backable
     clearMode();
     const fn = actionModes[id];
     if (!fn) return;
