@@ -24,12 +24,23 @@ export class UI {
     this.onAction = null;   // (actionId) => void
     this.onEndTurn = null;
     this.onMenu = null;
+    this.onNextUnit = null; // cycle to the next unit with orders left
+    this.onUnitClose = null; // ✕ on the unit panel — owner clears selection
     this._buildTracks();
     this._buildActionBar();
     $('endTurnBtn').addEventListener('click', () => { audio?.sfx('tick'); this.onEndTurn?.(); });
     $('menuBtn').addEventListener('click', () => { audio?.sfx('tick'); this.onMenu?.(); });
     $('logToggle').addEventListener('click', () => $('logPanel').classList.toggle('open'));
-    $('unitClose').addEventListener('click', () => this.showUnit(null, null));
+    $('unitClose').addEventListener('click', () => {
+      if (this.onUnitClose) this.onUnitClose();
+      else this.showUnit(null, null);
+    });
+    const next = document.createElement('button');
+    next.id = 'nextBtn';
+    next.title = 'Next unit with orders left';
+    next.textContent = '⏭ Next';
+    next.addEventListener('click', () => { audio?.sfx('tick'); this.onNextUnit?.(); });
+    $('topbtns').insertBefore(next, $('endTurnBtn'));
     if (audio) {
       const mute = document.createElement('button');
       mute.id = 'muteBtn';
@@ -54,6 +65,19 @@ export class UI {
       ['trkSupply', 'Island supply', 'sup'],
     ];
     const box = $('tracks');
+    // compact single-row strip shown on narrow screens; tapping it toggles
+    // #tracks between the full panel and this strip (see .collapsed in
+    // css/style.css). Hidden entirely on desktop.
+    const strip = document.createElement('div');
+    strip.id = 'tracksStrip';
+    strip.innerHTML = `<span id="stripIntv"></span><span id="stripTw"></span>
+      <span id="stripPrc"></span><span id="stripSup"></span>
+      <span>·</span><span id="stripAir"></span>`;
+    strip.addEventListener('click', () => box.classList.toggle('collapsed'));
+    box.appendChild(strip);
+    if (window.matchMedia && window.matchMedia('(max-width: 700px)').matches) {
+      box.classList.add('collapsed');
+    }
     for (const [id, label, cls] of defs) {
       const el = document.createElement('div');
       el.className = 'track ' + cls;
@@ -92,7 +116,13 @@ export class UI {
       const slot = i - 3; // -3 blue .. +3 red
       gauge[i].className = slot === game.airSup ? (game.airSup > 0 ? 'on red' : game.airSup < 0 ? 'on blue' : 'on mid') : '';
     }
-    $('airVal').textContent = game.airSup > 0 ? 'PLA' : game.airSup < 0 ? 'Allied' : 'Contested';
+    const airLabel = game.airSup > 0 ? 'PLA' : game.airSup < 0 ? 'Allied' : 'Contested';
+    $('airVal').textContent = airLabel;
+    $('stripIntv').textContent = `🔵${Math.round(game.intervention)}`;
+    $('stripTw').textContent = `🟢${Math.round(game.twWill)}`;
+    $('stripPrc').textContent = `🔴${Math.round(game.prcWill)}`;
+    $('stripSup').textContent = `🟡${Math.round(game.supply)}`;
+    $('stripAir').textContent = airLabel;
     $('invMissiles').textContent = game.red.srbm + game.red.lacm;
     $('invInterceptors').textContent = Math.round(game.interceptors);
     const wx = weatherNow(game);

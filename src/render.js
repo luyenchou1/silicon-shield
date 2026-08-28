@@ -47,8 +47,10 @@ export class Renderer {
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 300);
-    const center = worldPos(9, 9);
-    this.camera.position.set(center.x, 26, center.z + 17);
+    // phones open framed tight on Taiwan itself; wide screens get the full theater
+    const narrow = container.clientWidth > 0 && container.clientWidth < 700;
+    const center = narrow ? worldPos(11, 9) : worldPos(9, 9);
+    this.camera.position.set(center.x, narrow ? 19 : 26, center.z + (narrow ? 12 : 17));
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(center.x, 0, center.z);

@@ -116,6 +116,28 @@ function selectAt(c, r) {
   drawSelection();
 }
 
+// units that can still usefully act this turn (Next button + end-turn guard)
+function unitsWithOrders() {
+  if (!game || game.result) return [];
+  return game.units.filter(u => {
+    if (!u.alive || u.embarkedIn || u.side !== 'blue') return false;
+    if (u.cls === 'air') return !u.attacked && airStrikeTargets(game, map, u).length > 0;
+    return moveTargets(game, map, u).length > 0 || attackTargets(game, map, u).length > 0;
+  });
+}
+
+function nextUnit() {
+  if (busy || !game || game.result || game.phase !== 'blue') return;
+  clearMode();
+  const list = unitsWithOrders();
+  if (!list.length) { ui.toast('Every unit has acted.'); return; }
+  const idx = list.findIndex(u => u.id === selId);
+  const u = list[(idx + 1) % list.length];
+  selId = u.id;
+  renderer.focusOn(u.c, u.r);
+  drawSelection();
+}
+
 // ------------------------------------------------------------ target modes
 function setMode(m) {
   mode = m;
@@ -324,6 +346,22 @@ function checkMidTurnVictory() {
 // -------------------------------------------------------------- turn loop
 async function endTurn() {
   if (busy || game.result) return;
+  // safety net: ending the day with several units unordered is usually a slip
+  const ready = unitsWithOrders();
+  if (ready.length >= 3 && !game.noEndTurnWarn) {
+    const names = ready.slice(0, 4).map(u => u.name).join(', ');
+    const go = await ui.modal({
+      title: 'End the day?',
+      body: `<p>${ready.length} units still have orders left (${names}${ready.length > 4 ? ', …' : ''}).</p>`,
+      buttons: [
+        { label: 'End Turn', value: 'end', primary: true },
+        { label: 'Keep Playing', value: 'stay' },
+        { label: "End Turn — don't ask again", value: 'never' },
+      ],
+    });
+    if (go === 'stay') return;
+    if (go === 'never') game.noEndTurnWarn = true;
+  }
   busy = true;
   selId = null; clearMode();
   const btn = document.getElementById('endTurnBtn');
@@ -603,6 +641,8 @@ function boot() {
   fx.onStep = () => { if (game) { renderer.syncUnits(game); ui.refreshTracks(game); ui.refreshLog(game); } };
   ui.onEndTurn = endTurn;
   ui.onMenu = menu;
+  ui.onNextUnit = nextUnit;
+  ui.onUnitClose = () => { selId = null; drawSelection(); };
   ui.onAction = id => {
     if (busy || !game || game.result || game.phase !== 'blue') return;
     clearMode();

@@ -30,8 +30,13 @@ body {
 
 /* ---------------------------------------------------------------- topbar */
 #topbar {
-  position: absolute; top: 0; left: 0; right: 0; height: 52px;
-  display: flex; align-items: center; gap: 14px; padding: 0 12px;
+  position: absolute; top: 0; left: 0; right: 0; min-height: 52px;
+  display: flex; align-items: center; gap: 14px;
+  /* base 0/12px padding, grown by notch safe-area insets where present (no-op on desktop) */
+  padding: max(0px, env(safe-area-inset-top))
+           max(12px, env(safe-area-inset-right))
+           0
+           max(12px, env(safe-area-inset-left));
   background: linear-gradient(180deg, rgba(4, 9, 16, 0.95), rgba(4, 9, 16, 0.6) 80%, transparent);
   z-index: 20; pointer-events: none;
 }
@@ -44,6 +49,7 @@ body {
 #dayLabel { font-weight: 700; }
 #cpLabel { color: var(--gold); font-weight: 700; }
 #topbtns { margin-left: auto; display: flex; gap: 8px; }
+#topbtns button, #turninfo { white-space: nowrap; }
 
 button {
   font: inherit; color: var(--text);
@@ -65,6 +71,9 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
   border-radius: 10px; padding: 8px 10px; z-index: 15;
   backdrop-filter: blur(6px);
 }
+/* strip is desktop-hidden by default; the mobile-collapse media query below
+   (max-width: 700px) is the only place that turns it on */
+#tracksStrip { display: none; }
 .track { display: flex; align-items: center; gap: 6px; margin: 5px 0; font-size: 11px; }
 .tlabel { flex: 0 0 78px; color: var(--dim); }
 .bar { flex: 1; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
@@ -121,7 +130,9 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
 /* ------------------------------------------------------------ action bar */
 #actionBar {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 46px;
-  display: flex; gap: 6px; z-index: 15; padding: 6px 8px;
+  display: flex; gap: 6px; z-index: 15;
+  /* base 6px/8px padding, grown by safe-area insets where present (no-op on desktop) */
+  padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   background: var(--panel); border: 1px solid var(--panel-border);
   border-radius: 12px; backdrop-filter: blur(6px);
   max-width: 96vw; overflow-x: auto;
@@ -140,7 +151,11 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
 
 /* ------------------------------------------------------------------- log */
 #logPanel {
-  position: absolute; left: 8px; right: 8px; bottom: 6px; z-index: 14;
+  position: absolute; z-index: 14;
+  /* base 8px/8px/6px offsets, grown by safe-area insets where present (no-op on desktop) */
+  left: max(8px, env(safe-area-inset-left));
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(6px, env(safe-area-inset-bottom));
 }
 #logToggle {
   width: 100%; text-align: left; font-size: 12px; color: var(--dim);
@@ -224,14 +239,93 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
 /* ---------------------------------------------------------------- mobile */
 @media (max-width: 760px) {
   #brand { display: none; }
+  /* five controls across 375px: tighten so the menu button isn't clipped */
+  #topbar { gap: 6px; }
+  #topbtns { gap: 4px; }
+  #topbtns button { padding-left: 8px; padding-right: 8px; font-size: 13px; }
+  #turninfo { font-size: 13px; }
   #tracks {
     top: auto; bottom: 96px; right: 4px; left: auto; width: 178px;
     font-size: 10px; padding: 6px 8px;
   }
   .tlabel { flex-basis: 64px; }
   #unitPanel { left: 4px; right: auto; bottom: 96px; width: min(230px, 55vw); }
-  #actionBar { bottom: 36px; gap: 4px; padding: 5px 6px; }
+  #actionBar {
+    bottom: 36px; gap: 4px;
+    padding: 5px max(6px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+  }
   .actBtn { min-width: 50px; }
-  #logPanel { bottom: 4px; }
-  #topbar { height: 46px; }
+  #logPanel { bottom: max(4px, env(safe-area-inset-bottom)); }
+  #topbar { min-height: 46px; }
+
+  /* -------------------------------------------------- unit panel: phones
+     Cap the panel so it can never grow tall enough to cover the action
+     bar; #unitClose stays put (position:absolute against #unitPanel, its
+     own positioned + scrolling ancestor) so it never scrolls out of reach. */
+  #unitPanel { max-height: 45vh; overflow-y: auto; }
+
+  /* ------------------------------------------------------- modals: phones
+     Was: overflow-y:auto on .modal itself, so long content dragged the
+     title and button row along with it and off-screen. Now the modal is a
+     fixed-height column with title/buttons pinned and only .mbody scrolling. */
+  .modal {
+    max-height: 85vh; max-height: 85dvh;
+    display: flex; flex-direction: column; overflow-y: hidden;
+  }
+  .modal h2, .modal .mbtns { flex: 0 0 auto; }
+  .modal .mbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+}
+
+/* ------------------------------------------------- tracks collapse: phones
+   Below ~700px the #tracks panel would otherwise eat the lower-right
+   quarter of the map, so it collapses to a one-row strip of dots/values;
+   tapping the strip (see UI._buildTracks in src/ui.js) toggles #tracks's
+   .collapsed class. #tracksStrip defaults to display:none (base rule near
+   #tracks above) and is only switched on here, and default-collapsed state
+   is only ever set below this breakpoint (matchMedia check in
+   _buildTracks). */
+@media (max-width: 700px) {
+  #tracksStrip {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; line-height: 1; cursor: pointer;
+    white-space: nowrap;
+  }
+  #tracks:not(.collapsed) #tracksStrip {
+    margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--panel-border);
+  }
+  /* collapsed strip is wider than the fixed 178px panel — size to content */
+  #tracks.collapsed { padding: 7px 9px; width: auto; max-width: calc(100vw - 12px); }
+  #tracks.collapsed .track,
+  #tracks.collapsed .inventories { display: none; }
+}
+
+/* --------------------------------------------- touch targets: coarse pointers
+   Apple/Google HIG minimum is ~44px; the desktop-tuned buttons below run
+   smaller than that, which is fine for a mouse but too fiddly for a
+   fingertip. Bump the hit area on touch devices only — mouse/trackpad
+   layouts (and their tighter spacing) are untouched. */
+@media (pointer: coarse) {
+  .actBtn, .ubtn, #endTurnBtn, #menuBtn, #muteBtn, #unitClose {
+    min-width: 44px; min-height: 44px;
+  }
+  /* the close button grew — give the title more clearance so they don't overlap */
+  #unitName { padding-right: 48px; }
+
+  /* ---------------------------------------------- action bar: coarse pointers
+     Horizontal scroll already existed (overflow-x:auto); add the affordances
+     a touch user expects: inertial (momentum) scrolling, buttons that snap
+     into place instead of landing half-cut, and a subtle fade over the
+     trailing edge that only shows while there's more to scroll to (a pure-CSS
+     scroll-shadow: a "cover" gradient scrolls with the content — attachment:
+     local — matching the fade until the last button reaches the edge, at
+     which point it no longer covers it). */
+  #actionBar {
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    background:
+      linear-gradient(to left, var(--panel) 40%, rgba(0,0,0,0)) right center / 32px 100% local no-repeat,
+      linear-gradient(to left, rgba(2,6,12,0.55), rgba(2,6,12,0)) right center / 18px 100% scroll no-repeat,
+      var(--panel);
+  }
+  .actBtn { scroll-snap-align: start; }
 }
