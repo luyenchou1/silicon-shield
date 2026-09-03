@@ -154,6 +154,7 @@ export class Renderer {
     const rim = new THREE.DirectionalLight(0x4d7dc4, 0.5);
     rim.position.set(-20, 12, -14);
     this.scene.add(hemi, sun, sun.target, rim);
+    this.sun = sun;
 
     this.unitGroups = new Map(); // unit.id -> THREE.Group
     this.highlights = new THREE.Group();
@@ -197,6 +198,14 @@ export class Renderer {
       if (!document.hidden) return;
       this._tickFx?.(Math.min(this.clock.getDelta(), 0.25));
     }, 120);
+  }
+
+  // graphics setting: shadows are the one expensive feature on weak GPUs
+  setShadows(on) {
+    if (this.renderer.shadowMap.enabled === on) return;
+    this.renderer.shadowMap.enabled = on;
+    this.sun.castShadow = on;
+    this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
   }
 
   _resize() {

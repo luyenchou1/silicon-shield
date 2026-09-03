@@ -9,7 +9,7 @@ import {
   attackTargets, resolveCombat, doMove, rebaseTargets, doRebase,
   airStrikeTargets, airStrike, blueSalvo, tlamStrike, controllerOf,
   doLobby, doMobilize, doRepair, doMines, doConvoy, doDeepStrike,
-  ACTIONS, baseDamageAt, log,
+  ACTIONS, baseDamageAt, log, previewCombat, previewStrike,
 } from './rules.js';
 import { runRedTurn } from './ai.js';
 import { Renderer } from './render.js';
@@ -34,6 +34,101 @@ let selId = null;        // selected unit id
 let mode = null;         // targeting mode {hint, valid:(hex)=>bool, handler:(hex)=>Promise}
 let busy = false;        // red turn / animation lock
 let undoStack = [];      // pre-move snapshots; combat and CP actions clear it
+
+// ---------------------------------------------------------------- settings
+const SETTINGS_KEY = 'silicon-shield-settings';
+const settings = Object.assign(
+  { music: true, sfx: true, animSpeed: 1, confirmAttacks: true, shadows: true },
+  (() => { try { return JSON.parse(store.get(SETTINGS_KEY) || '{}'); } catch { return {}; } })()
+);
+
+function applySettings() {
+  store.set(SETTINGS_KEY, JSON.stringify(settings));
+  audio.sfxOn = settings.sfx;
+  const musicWas = audio.musicOn;
+  audio.musicOn = settings.music;
+  if (!settings.music) audio.stopTheme();
+  else if (!musicWas && game && !game.result) audio.theme('main');
+  fx.baseSpeed = settings.animSpeed;
+  if (!busy) fx.speed = fx.baseSpeed;
+  renderer.setShadows(settings.shadows);
+}
+
+async function settingsMenu() {
+  const row = (id, label, control) => `<div class="setRow"><span>${label}</span>${control}</div>`;
+  const chk = (id, on) => `<input type="checkbox" id="set_${id}" ${on ? 'checked' : ''}>`;
+  const body =
+    row('music', 'Music', chk('music', settings.music)) +
+    row('sfx', 'Sound effects', chk('sfx', settings.sfx)) +
+    row('speed', 'Battle animation speed',
+      `<select id="set_speed">
+         <option value="1" ${settings.animSpeed === 1 ? 'selected' : ''}>Cinematic</option>
+         <option value="2" ${settings.animSpeed === 2 ? 'selected' : ''}>Brisk (2×)</option>
+         <option value="4" ${settings.animSpeed === 4 ? 'selected' : ''}>Fast (4×)</option>
+       </select>`) +
+    row('confirm', 'Show odds before attacking', chk('confirm', settings.confirmAttacks)) +
+    row('shadows', 'Shadows (turn off on slow devices)', chk('shadows', settings.shadows));
+  await ui.modal({
+    title: '⚙️ Settings',
+    body,
+    buttons: [{ label: 'Done', value: true, primary: true }],
+    onOpen: m => {
+      m.querySelector('#set_music').addEventListener('change', e => { settings.music = e.target.checked; applySettings(); });
+      m.querySelector('#set_sfx').addEventListener('change', e => { settings.sfx = e.target.checked; applySettings(); });
+      m.querySelector('#set_speed').addEventListener('change', e => { settings.animSpeed = Number(e.target.value); applySettings(); });
+      m.querySelector('#set_confirm').addEventListener('change', e => { settings.confirmAttacks = e.target.checked; applySettings(); });
+      m.querySelector('#set_shadows').addEventListener('change', e => { settings.shadows = e.target.checked; applySettings(); });
+    },
+  });
+}
+
+// ------------------------------------------------------- engagement odds
+// The card a commander sees before committing: expected steps, kill chance,
+// and what the target will do back. Bars make the ratio legible at a glance.
+async function confirmEngagement(atk, def, odds, kind) {
+  const pct = x => `${Math.round(x * 100)}%`;
+  const bar = (v, max, cls) => `<div class="oddsBar ${cls}"><i style="width:${Math.min(100, v / max * 100)}%"></i></div>`;
+  const max = Math.max(odds.a, odds.defEff, 1) * 1.15;
+  const stepsTxt = odds.min === odds.max ? `${odds.min}` : `${odds.min}–${odds.max}`;
+  let body = `
+    <div class="oddsHead"><b>${unitIcon(typeOf(atk))} ${atk.name}</b><span class="dim">${kind === 'strike' ? 'strikes' : 'engages'}</span><b>${unitIcon(typeOf(def))} ${def.name}</b></div>
+    <div class="oddsRow"><span>${kind === 'strike' ? 'Strike' : 'Attack'} ${odds.a.toFixed(1)}</span>${bar(odds.a, max, 'atk')}</div>
+    <div class="oddsRow"><span>Defense ${odds.defEff.toFixed(1)}</span>${bar(odds.defEff, max, 'def')}</div>
+    <div class="oddsLine">Expected <b>−${odds.expected.toFixed(1)} step${odds.expected >= 1.95 ? 's' : ''}</b> (${stepsTxt}) · target has ${def.hp} · <b>${pct(odds.kill)}</b> to destroy</div>`;
+  if (odds.counter) {
+    body += `<div class="oddsLine dim">Return fire if it survives: −${odds.counter.expected.toFixed(1)} step${odds.counter.expected >= 1.95 ? 's' : ''} to you (${pct(odds.counter.kill)} to be destroyed)</div>`;
+  }
+  if (odds.flak !== undefined) {
+    body += `<div class="oddsLine dim">Air-defense attrition risk: ${pct(odds.flak)} chance of losing aircraft</div>`;
+  }
+  const go = await ui.modal({
+    title: kind === 'strike' ? 'Launch strike?' : 'Engage?',
+    body,
+    buttons: [{ label: kind === 'strike' ? 'Strike' : 'Attack', value: true, primary: true }, { label: 'Cancel', value: false }],
+  });
+  return go;
+}
+
+// ------------------------------------------------------- campaign score
+const SCORE_OUTCOME = { 'strait-holds': 1000, 'beijing-blinks': 900, 'held-the-line': 700, 'capital-fallen': 150, 'capitulation': 100 };
+const SCORE_TITLES = ['Relieved of Command', 'Holding On', 'Steady Hand', 'Admiral of the Strait', 'Legend of the Silicon Shield'];
+
+function campaignScore() {
+  const r = game.result;
+  const dead = (side, classes) => game.units.filter(u => !u.alive && u.side === side && classes.includes(u.cls)).length;
+  const ships = ['naval', 'amphib', 'sub'];
+  let s = SCORE_OUTCOME[r.kind] || 0;
+  s += dead('red', ships) * 40 + dead('red', ['ground']) * 15 + dead('red', ['air']) * 20;
+  s -= dead('blue', ships) * 25 + dead('blue', ['ground']) * 10 + dead('blue', ['air']) * 15;
+  if (r.winner === 'blue') s += Math.max(0, 30 - Math.min(game.turn, 30)) * 8; // a quick win is a clean win
+  s = Math.max(0, Math.round(s * ({ easy: 0.7, normal: 1, hard: 1.4 }[game.difficulty] || 1)));
+  const stars = s >= 1500 ? 5 : s >= 1100 ? 4 : s >= 800 ? 3 : s >= 450 ? 2 : 1;
+  const bestKey = `silicon-shield-best-${game.difficulty}`;
+  const best = Number(store.get(bestKey) || 0);
+  const record = s > best;
+  if (record) store.set(bestKey, String(s));
+  return { score: s, stars, title: SCORE_TITLES[stars - 1], record, best: Math.max(best, s) };
+}
 
 // ------------------------------------------------------------------ helpers
 const sel = () => game?.units.find(u => u.id === selId && u.alive && !u.embarkedIn) || null;
@@ -336,6 +431,7 @@ async function handleTap(c, r) {
     // strike? (targets are already ringed in red)
     const tgt = airStrikeTargets(game, map, u).find(t => t.c === c && t.r === r);
     if (tgt) {
+      if (settings.confirmAttacks && !(await confirmEngagement(u, tgt, previewStrike(game, map, u, tgt), 'strike'))) return;
       clearUndo();
       busy = true;
       try {
@@ -377,6 +473,7 @@ async function handleTap(c, r) {
     // attack?
     const tgt = attackTargets(game, map, u).find(t => t.c === c && t.r === r);
     if (tgt) {
+      if (settings.confirmAttacks && !(await confirmEngagement(u, tgt, previewCombat(game, map, u, tgt), 'attack'))) return;
       clearUndo();
       busy = true;
       try {
@@ -421,7 +518,7 @@ async function endTurn() {
   const btn = document.getElementById('endTurnBtn');
   btn.textContent = 'Skip ⏩';
   btn.disabled = false;
-  fx.speed = 1;
+  fx.speed = fx.baseSpeed;
   const skipper = () => { fx.speed = 12; };
   btn.addEventListener('click', skipper);
   let notices = [];
@@ -446,7 +543,7 @@ async function endTurn() {
   } finally {
     btn.removeEventListener('click', skipper);
     btn.textContent = 'End Turn ⏵';
-    fx.speed = 1;
+    fx.speed = fx.baseSpeed;
     busy = false;
     refreshAll();
   }
@@ -564,7 +661,12 @@ function afterActionReport() {
   const timeline = moments.map(e =>
     `<div class="aar-t"><span class="aar-day">D+${e.turn}</span>${e.text}</div>`).join('');
 
-  return `<h3 class="aar-h">By the numbers</h3><div class="aar-grid">${grid}</div>
+  const sc = campaignScore();
+  const stars = '★'.repeat(sc.stars) + '☆'.repeat(5 - sc.stars);
+  const scoreBox = `<div class="aar-score"><span class="stars">${stars}</span><b>${sc.score.toLocaleString()} pts</b>
+    <span class="title">${sc.title}</span>${sc.record ? '<span class="record">New record</span>' : `<span class="dim">best ${sc.best.toLocaleString()}</span>`}</div>`;
+
+  return `${scoreBox}<h3 class="aar-h">By the numbers</h3><div class="aar-grid">${grid}</div>
     <h3 class="aar-h">Key moments</h3><div class="aar-timeline">${timeline}</div>`;
 }
 
@@ -685,11 +787,15 @@ async function menu() {
     buttons: [
       { label: 'Resume', value: 'resume', primary: true },
       { label: 'How to Play', value: 'how' },
+      { label: '⚙️ Settings', value: 'settings' },
       { label: 'Abandon & New Campaign', value: 'new' },
     ],
   });
   if (choice === 'how') {
     await ui.modal({ title: 'Field Manual', body: HOW_TO, wide: true });
+    menu();
+  } else if (choice === 'settings') {
+    await settingsMenu();
     menu();
   } else if (choice === 'new') {
     store.del(SAVE_KEY);
@@ -707,6 +813,7 @@ function boot() {
   ui = new UI(audio);
   fx = new Fx(renderer, ui, audio);
   fx.onStep = () => { if (game) { renderer.syncUnits(game); ui.refreshTracks(game); ui.refreshLog(game); } };
+  applySettings();
   ui.onEndTurn = endTurn;
   ui.onMenu = menu;
   ui.onNextUnit = nextUnit;

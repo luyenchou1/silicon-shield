@@ -14,6 +14,8 @@ export class AudioEngine {
     let muted = false;
     try { muted = localStorage.getItem(MUTE_KEY) === '1'; } catch { /* default on */ }
     this.muted = muted;
+    this.musicOn = true; // finer control than the master mute, set from Settings
+    this.sfxOn = true;
   }
 
   // Call from a user-gesture handler; safe to call repeatedly.
@@ -79,7 +81,7 @@ export class AudioEngine {
 
   // ---------------------------------------------------------------- sfx
   sfx(name) {
-    if (!this.ready) return;
+    if (!this.ready || !this.sfxOn) return;
     const now = performance.now();
     if (now - (this.lastPlayed[name] || 0) < 90) return; // per-sound throttle
     this.lastPlayed[name] = now;
@@ -166,7 +168,7 @@ export class AudioEngine {
   // Themes are multi-track sections (bass + pad + lead + arp + drum kit),
   // scheduled section-by-section so the main theme loops with variation.
   theme(kind) {
-    if (!this.ready) return;
+    if (!this.ready || !this.musicOn) return;
     this.stopTheme();
     this._themeKind = kind;
     this._pass = 0;

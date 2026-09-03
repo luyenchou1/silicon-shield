@@ -326,7 +326,8 @@ export class UI {
   }
 
   // ------------------------------------------------------------ modals
-  modal({ title, body, buttons = [{ label: 'Continue', value: true }], wide = false }) {
+  // onOpen(modalEl) lets callers wire live controls (settings toggles) inside the body
+  modal({ title, body, buttons = [{ label: 'Continue', value: true }], wide = false, onOpen = null }) {
     return new Promise(resolve => {
       const layer = $('modalLayer');
       layer.innerHTML = '';
@@ -334,6 +335,7 @@ export class UI {
       const m = document.createElement('div');
       m.className = 'modal' + (wide ? ' wide' : '');
       m.innerHTML = `<h2>${title}</h2><div class="mbody">${body}</div><div class="mbtns"></div>`;
+      if (onOpen) queueMicrotask(() => onOpen(m));
       const btns = m.querySelector('.mbtns');
       for (const b of buttons) {
         const el = document.createElement('button');

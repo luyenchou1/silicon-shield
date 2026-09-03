@@ -9,7 +9,8 @@ export class Fx {
     this.r = renderer;
     this.ui = ui;
     this.audio = audio;
-    this.speed = 1;
+    this.baseSpeed = 1;  // player's animation-speed setting
+    this.speed = 1;      // live multiplier (Skip cranks it up temporarily)
     this.active = [];
     renderer._tickFx = dt => this.tick(dt);
     this.onStep = null; // callback: HUD refresh between AI steps
@@ -247,6 +248,8 @@ export class Fx {
     this._sfx('klaxon');
     const from = this.r.hexCenter(flot.c, flot.r);
     const to = this.r.hexCenter(hex.c, hex.r);
+    // the moment of the campaign — bring the camera to the beach
+    if (this.speed < 8) { this.r.focusOn(hex.c, hex.r, null, { dur: 0.5 }); await this.wait(350); }
     // landing craft waves
     for (let i = 0; i < 3; i++) {
       const craft = new THREE.Mesh(
@@ -278,6 +281,7 @@ export class Fx {
 
   async drop(u, hex, res) {
     const to = this.r.hexCenter(hex.c, hex.r);
+    if (this.speed < 8) { this.r.focusOn(hex.c, hex.r, null, { dur: 0.5 }); await this.wait(300); }
     const from = to.clone().add(new THREE.Vector3(-6, 5, -2));
     await this.arc(from, to, { color: 0xdddddd, apex: 1, dur: 0.8 });
     this.boom(to, { size: 0.4, color: 0xcccccc });

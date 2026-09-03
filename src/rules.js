@@ -231,6 +231,49 @@ export function resolveCombat(game, map, atk, def) {
   return res;
 }
 
+// ------------------------------------------------------- engagement odds
+// Deterministic previews for the UI: what an engagement is likely to cost
+// each side before the player commits. Mirrors the resolveCombat/airStrike
+// math exactly (damage = strength x U(0.7,1.3); steps = floor + Bernoulli).
+function stepOdds(a, defEff, defHp) {
+  const lo = 0.7 * a / Math.max(0.1, defEff), hi = 1.3 * a / Math.max(0.1, defEff);
+  let expected = 0, kill = 0;
+  const N = 24;
+  for (let i = 0; i < N; i++) {
+    const ratio = lo + (hi - lo) * ((i + 0.5) / N);
+    const base = Math.floor(ratio), p = ratio - base;
+    expected += ratio;
+    if (base >= defHp) kill += 1;
+    else if (base + 1 >= defHp) kill += p;
+  }
+  return { expected: expected / N, min: Math.floor(lo), max: Math.ceil(hi), kill: kill / N };
+}
+
+export function previewCombat(game, map, atk, def) {
+  const a = attackStrength(game, atk, def);
+  const defEff = typeOf(def).def * terrainDefMod(map, def) * Math.pow(frac(def), 0.3) * supMod(game, def.side, false);
+  const out = { a, defEff, ...stepOdds(a, defEff, def.hp), counter: null };
+  const t = typeOf(def);
+  if (!(def.cls === 'sub' && atk.cls !== 'sub') && t.rng && hexDist(atk, def) <= t.rng && attackStrength(game, def, atk) > 0) {
+    const ca = attackStrength(game, def, atk) * 0.6;
+    const atkEff = typeOf(atk).def * terrainDefMod(map, atk) * Math.pow(frac(atk), 0.3);
+    out.counter = stepOdds(ca, atkEff, atk.hp);
+  }
+  return out;
+}
+
+export function previewStrike(game, map, wing, target) {
+  const t = typeOf(wing);
+  const wx = weatherNow(game);
+  const naval = target.cls === 'naval' || target.cls === 'amphib' || target.cls === 'sub';
+  let a = t.strike * (naval ? 1 : 0.8) * frac(wing) * wx.airMod * supMod(game, wing.side, true);
+  a *= (1 - baseDamageAt(game, wing.c, wing.r) / 6);
+  const defEff = typeOf(target).def * terrainDefMod(map, target) * Math.pow(frac(target), 0.3);
+  const flak = typeOf(target).def >= 6 ? 0.22 : 0.1;
+  const flakP = flak * (wing.side === 'red' ? (game.airSup < 0 ? 1.5 : 1) : (game.airSup > 0 ? 1.5 : 1));
+  return { a, defEff, ...stepOdds(a, defEff, target.hp), flak: Math.min(1, flakP) };
+}
+
 // ---------------------------------------------------------- amphibious ops
 export function canUnload(game, map, flot) {
   if (!flot.alive || flot.cls !== 'amphib' || !flot.cargo.length) return [];
