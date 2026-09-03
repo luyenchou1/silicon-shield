@@ -140,7 +140,28 @@ function refreshAll() {
   ui.refreshActions(game);
   ui.refreshLog(game);
   ui.setUndoEnabled(!busy && undoStack.length > 0 && game.phase === 'blue' && !game.result);
+  ui.drawMinimap(game, renderer.controls.target);
   drawSelection();
+}
+
+// -------------------------------------------------------------- tour
+const TOUR_KEY = 'silicon-shield-toured';
+async function runTour() {
+  const firstArmor = () => game.units.find(u => u.side === 'blue' && u.alive && typeOf(u).armor);
+  await ui.tour([
+    { target: null, title: 'The Taiwan Strait, April 2027',
+      text: 'Taiwan sits mid-map; the PLA stages from the mainland ports to the west. Drag to pan, pinch or scroll to zoom, right-drag or two fingers to rotate.' },
+    { target: '#tracks', title: 'Four tracks decide the war',
+      text: '<b>US intervention</b> at 50 brings the Seventh Fleet. <b>Taiwan resolve</b> at 0 means capitulation. <b>PRC resolve</b> at 0 sends Beijing home. <b>Supply</b> falls under blockade.' },
+    { target: '#unitPanel', title: 'Commanding units',
+      before: async () => { const u = firstArmor(); if (u) { selId = u.id; renderer.focusOn(u.c, u.r, 12); drawSelection(); await new Promise(r => setTimeout(r, 350)); } },
+      text: 'Tap a unit to select it. White hexes move it; red rings attack (you see the odds first). Every unit and place has an <b>ℹ️ About</b> brief on the real thing.' },
+    { target: '#actionBar', title: 'Strategic actions',
+      text: 'Command Points buy the big moves: mine the landing beaches, mobilize reserves, fire coastal missiles at the fleet, lobby Washington.' },
+    { target: '#topbtns', title: 'Running the day',
+      text: '<b>⏭ Next</b> jumps to units with orders left, <b>↩</b> takes back a move. <b>End Turn</b> hands the day to the PLA — then you get a situation report of what it cost.' },
+  ]);
+  selId = null; drawSelection();
 }
 
 // Undo covers repositioning only — moves and rebases have no dice in them.
@@ -395,7 +416,27 @@ function bindInput() {
   document.addEventListener('touchmove', e => {
     if (e.target.closest('#scene')) e.preventDefault();
   }, { passive: false });
-  el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+  el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; ui.showHover(null); });
+  // desktop hover: who is on that hex, without committing a selection
+  let hoverKey = null;
+  el.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse' || !game || busy) return;
+    const hit = renderer.pick(e.clientX, e.clientY);
+    const k = hit ? key(hit.c, hit.r) : null;
+    if (k !== hoverKey) {
+      hoverKey = k;
+      if (!hit) { ui.showHover(null); return; }
+      const hex = map.get(hit.c, hit.r);
+      const here = unitsAt(game, hit.c, hit.r).filter(u => visibleTo(u, 'blue'));
+      if (!here.length && !hex.loc) { ui.showHover(null); return; }
+      const lines = here.map(u => `<div class="${u.side}">${unitIcon(typeOf(u))} ${u.name} <span class="dim">${'●'.repeat(u.hp)}${'○'.repeat(u.maxHp - u.hp)}</span></div>`);
+      if (hex.loc) lines.push(`<div class="dim">📍 ${hex.loc.name}</div>`);
+      ui.showHover(lines.join(''), e.clientX, e.clientY);
+    } else if (k) {
+      ui.showHover(undefined, e.clientX, e.clientY);
+    }
+  });
+  el.addEventListener('pointerleave', () => { hoverKey = null; ui.showHover(null); });
   el.addEventListener('pointerup', async e => {
     if (!down) return;
     const dx = e.clientX - down.x, dy = e.clientY - down.y;
@@ -736,6 +777,9 @@ or geography behind it and what it does in the game. Tap any unit, or any empty 
 
 async function bootMenu() {
   const hasSave = !!store.get(SAVE_KEY);
+  // title screen: let the theater drift slowly behind the briefing
+  renderer.controls.autoRotate = true;
+  renderer.controls.autoRotateSpeed = 0.45;
   const choice = await ui.modal({
     title: '🛡️ SILICON SHIELD — The Battle for Taiwan',
     body: BRIEFING,
@@ -747,6 +791,7 @@ async function bootMenu() {
       { label: 'New: Davidson Window (hard)', value: 'hard' },
     ],
   });
+  renderer.controls.autoRotate = false;
   if (choice === 'continue') {
     try {
       ({ game, map } = deserialize(store.get(SAVE_KEY)));
@@ -767,6 +812,11 @@ async function bootMenu() {
   clearUndo();
   refreshAll();
   ui.banner(`D+${game.turn} — YOUR ORDERS, COMMANDER`, 'blue');
+  // first campaign ever: a short guided tour of the interface
+  if (choice !== 'continue' && store.get(TOUR_KEY) !== '1') {
+    store.set(TOUR_KEY, '1');
+    await runTour();
+  }
   // ease the first-game cliff: opening guidance on the training difficulty
   if (choice === 'easy') {
     const tips = advisorTips();
@@ -814,6 +864,14 @@ function boot() {
   fx = new Fx(renderer, ui, audio);
   fx.onStep = () => { if (game) { renderer.syncUnits(game); ui.refreshTracks(game); ui.refreshLog(game); } };
   applySettings();
+  ui.buildMinimap(map, (c, r) => renderer.focusOn(c, r));
+  // keep the minimap's camera marker live while the view moves (throttled)
+  let mmPending = false;
+  renderer.controls.addEventListener('change', () => {
+    if (mmPending) return;
+    mmPending = true;
+    setTimeout(() => { mmPending = false; ui.drawMinimap(game, renderer.controls.target); }, 90);
+  });
   ui.onEndTurn = endTurn;
   ui.onMenu = menu;
   ui.onNextUnit = nextUnit;

@@ -3,6 +3,7 @@
 
 import { typeOf } from './state.js';
 import { ACTIONS, weatherNow, baseDamageAt } from './rules.js';
+import { worldPos } from './hex.js';
 
 const $ = id => document.getElementById(id);
 
@@ -323,6 +324,125 @@ export class UI {
     if (!text) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     el.querySelector('span').textContent = text;
+  }
+
+  // ------------------------------------------------------------ minimap
+  // A theater overview in the corner: terrain, unit dots, camera marker.
+  // Tap anywhere on it to fly the camera there.
+  buildMinimap(map, onJump) {
+    const c = document.createElement('canvas');
+    c.id = 'minimap';
+    c.width = 320; c.height = 300;
+    $('app').appendChild(c);
+    let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+    for (const h of map.hexes.values()) {
+      const p = worldPos(h.c, h.r);
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+    }
+    this._mm = { c, map, minX: minX - 1, maxX: maxX + 1, minZ: minZ - 1, maxZ: maxZ + 1 };
+    c.addEventListener('click', e => {
+      const rect = c.getBoundingClientRect();
+      const wx = this._mm.minX + (e.clientX - rect.left) / rect.width * (this._mm.maxX - this._mm.minX);
+      const wz = this._mm.minZ + (e.clientY - rect.top) / rect.height * (this._mm.maxZ - this._mm.minZ);
+      let best = null, bd = 1e9;
+      for (const h of map.hexes.values()) {
+        const p = worldPos(h.c, h.r);
+        const d = (p.x - wx) ** 2 + (p.z - wz) ** 2;
+        if (d < bd) { bd = d; best = h; }
+      }
+      if (best) { this.audio?.sfx('tick'); onJump(best.c, best.r); }
+    });
+  }
+
+  drawMinimap(game, camTarget) {
+    const mm = this._mm;
+    if (!mm) return;
+    const ctx = mm.c.getContext('2d');
+    const W = mm.c.width, H = mm.c.height;
+    const sx = W / (mm.maxX - mm.minX), sz = H / (mm.maxZ - mm.minZ);
+    const px = x => (x - mm.minX) * sx, pz = z => (z - mm.minZ) * sz;
+    ctx.clearRect(0, 0, W, H);
+    const r = Math.min(sx, sz) * 0.95;
+    for (const h of mm.map.hexes.values()) {
+      const p = worldPos(h.c, h.r);
+      ctx.fillStyle = '#' + h.t.color.toString(16).padStart(6, '0');
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const x = px(p.x) + r * Math.sin(a), y = pz(p.z) + r * Math.cos(a);
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.closePath(); ctx.fill();
+    }
+    if (game) {
+      for (const u of game.units) {
+        if (!u.alive || u.embarkedIn || (u.cls === 'sub' && u.hidden && u.side === 'red')) continue;
+        const p = worldPos(u.c, u.r);
+        ctx.beginPath();
+        ctx.arc(px(p.x), pz(p.z), 4, 0, Math.PI * 2);
+        ctx.fillStyle = u.side === 'red' ? '#ff5a4c' : '#5aa4ff';
+        ctx.fill();
+        ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.stroke();
+      }
+    }
+    if (camTarget) {
+      ctx.beginPath();
+      ctx.arc(px(camTarget.x), pz(camTarget.z), 13, 0, Math.PI * 2);
+      ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.stroke();
+    }
+  }
+
+  // ---------------------------------------------------------- hover tip
+  showHover(html, x, y) {
+    let el = $('hoverTip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'hoverTip';
+      $('app').appendChild(el);
+    }
+    if (!html) { el.style.display = 'none'; return; }
+    el.innerHTML = html;
+    el.style.display = 'block';
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = Math.min(window.innerWidth - w - 8, x + 16) + 'px';
+    el.style.top = Math.min(window.innerHeight - h - 8, y + 16) + 'px';
+  }
+
+  // --------------------------------------------------------- guided tour
+  // Coach marks: a spotlight cut-out over a target element with a card of
+  // copy. steps: [{target: selector|null, title, text, before: async fn}]
+  async tour(steps) {
+    const layer = document.createElement('div');
+    layer.id = 'tourLayer';
+    layer.innerHTML = `<div id="tourHole"></div>
+      <div id="tourCard"><div class="tstep"></div><h3></h3><p></p>
+      <div class="tbtns"><button id="tourSkip">Skip tour</button><button id="tourNext" class="primary">Next</button></div></div>`;
+    $('app').appendChild(layer);
+    const hole = layer.querySelector('#tourHole'), card = layer.querySelector('#tourCard');
+    const next = layer.querySelector('#tourNext'), skip = layer.querySelector('#tourSkip');
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      if (s.before) await s.before();
+      const el = s.target ? document.querySelector(s.target) : null;
+      if (el && el.getBoundingClientRect().width > 0) {
+        const r = el.getBoundingClientRect();
+        hole.style.display = 'block';
+        hole.style.left = (r.left - 6) + 'px'; hole.style.top = (r.top - 6) + 'px';
+        hole.style.width = (r.width + 12) + 'px'; hole.style.height = (r.height + 12) + 'px';
+      } else {
+        hole.style.display = 'none';
+      }
+      card.querySelector('.tstep').textContent = `${i + 1} / ${steps.length}`;
+      card.querySelector('h3').textContent = s.title;
+      card.querySelector('p').innerHTML = s.text;
+      next.textContent = i === steps.length - 1 ? 'Start playing' : 'Next';
+      const res = await new Promise(resolve => {
+        next.onclick = () => { this.audio?.sfx('tick'); resolve('next'); };
+        skip.onclick = () => { this.audio?.sfx('tick'); resolve('skip'); };
+      });
+      if (res === 'skip') break;
+    }
+    layer.remove();
   }
 
   // ------------------------------------------------------------ modals
