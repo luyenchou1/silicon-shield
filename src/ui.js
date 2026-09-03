@@ -36,6 +36,11 @@ export class UI {
       if (this.onUnitClose) this.onUnitClose();
       else this.showUnit(null, null);
     });
+    // 3D portrait of the selected unit, rendered by the Renderer
+    const portrait = document.createElement('canvas');
+    portrait.id = 'unitPortrait';
+    portrait.width = 192; portrait.height = 192;
+    $('unitPanel').insertBefore(portrait, $('unitType'));
     const next = document.createElement('button');
     next.id = 'nextBtn';
     next.title = 'Next unit with orders left';
@@ -214,6 +219,7 @@ export class UI {
     if (u.cls === 'sub' && u.hidden) status.push('submerged');
     if (stack && stack.n > 1) status.push(`unit ${stack.idx} of ${stack.n} in hex — tap again to cycle`);
     panel.classList.remove('hidden');
+    $('unitPortrait').style.display = '';
     panel.querySelector('#unitName').textContent = `${unitIcon(t)} ${u.name}`;
     panel.querySelector('#unitName').className = u.side === 'red' ? 'red' : 'blue';
     panel.querySelector('#unitType').textContent = t.name;
@@ -241,6 +247,7 @@ export class UI {
     if (loc.shelters) feats.push('mountain shelters');
     if (loc.island || loc.fortified) feats.push('fortified island');
     panel.querySelector('#unitType').textContent = hex.t.name;
+    $('unitPortrait').style.display = 'none';
     panel.querySelector('#unitHp').textContent = '';
     panel.querySelector('#unitStats').textContent = feats.join(' · ');
     panel.querySelector('#unitStatus').textContent = '';

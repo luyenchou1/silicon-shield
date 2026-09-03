@@ -13,7 +13,7 @@ const SIDE_COLORS = { red: 0xe0453a, blue: 0x3d8bff };
 const SIDE_DARK = { red: 0x8c1f18, blue: 0x1c4f92 };
 const STEEL = 0x6d7784;
 
-function makeLabelSprite(text, opts = {}) {
+export function makeLabelSprite(text, opts = {}) {
   const scale = opts.scale || 1;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -190,6 +190,7 @@ export class Renderer {
       this.water.material.uniforms.uTime.value = this._time;
       this._tickFx?.(dt);
       this.renderer.render(this.scene, this.camera);
+      this._renderPortrait(dt);
     };
     loop();
     // rAF pauses in hidden tabs, which would freeze awaited battle animations
@@ -198,6 +199,49 @@ export class Renderer {
       if (!document.hidden) return;
       this._tickFx?.(Math.min(this.clock.getDelta(), 0.25));
     }, 120);
+  }
+
+  // ------------------------------------------------------------- portrait
+  // A second tiny renderer showing the selected unit's model up close,
+  // slowly turning — the "inspect" view of a premium strategy game.
+  attachPortrait(canvas) {
+    this.portrait = {
+      canvas,
+      renderer: new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true }),
+      scene: new THREE.Scene(),
+      camera: new THREE.PerspectiveCamera(32, 1, 0.05, 20),
+      group: null,
+    };
+    const p = this.portrait;
+    p.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    p.renderer.setSize(canvas.clientWidth || 96, canvas.clientHeight || 96, false);
+    p.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    p.renderer.setClearColor(0x000000, 0);
+    p.camera.position.set(1.05, 0.85, 1.3);
+    p.camera.lookAt(0, 0.22, 0);
+    const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.4);
+    keyLight.position.set(2, 3, 2);
+    const fill = new THREE.HemisphereLight(0x9fbce6, 0x2a2419, 0.9);
+    p.scene.add(keyLight, fill);
+  }
+
+  showPortrait(u) {
+    const p = this.portrait;
+    if (!p) return;
+    if (p.group) p.scene.remove(p.group);
+    p.group = u ? this._unitMesh(u) : null;
+    if (!p.group) return;
+    // the model only: no label sprite, no step pips
+    for (const name of ['unitlabel', 'pips']) { const o = p.group.getObjectByName(name); if (o) p.group.remove(o); }
+    p.group.rotation.y = 0.4;
+    p.scene.add(p.group);
+  }
+
+  _renderPortrait(dt) {
+    const p = this.portrait;
+    if (!p || !p.group || !p.canvas.offsetParent) return;
+    p.group.rotation.y += dt * 0.5;
+    p.renderer.render(p.scene, p.camera);
   }
 
   // graphics setting: shadows are the one expensive feature on weak GPUs
@@ -521,6 +565,7 @@ export class Renderer {
       add(new THREE.BoxGeometry(0.1, 0.07, 0.1), accentMat, 0, 0.31, -0.06);
       add(new THREE.CylinderGeometry(0.008, 0.008, 0.16), darkMat, 0, 0.4, -0.02);
       add(new THREE.BoxGeometry(0.06, 0.045, 0.08), accentMat, 0, 0.21, -0.26);
+      add(new THREE.BoxGeometry(0.07, 0.035, 0.006), accentMat, 0.035, 0.47, -0.02); // pennant
       body.rotation.y = 0.6;
       bodyH = 0.42;
     } else if (t.cls === 'amphib') {
@@ -691,7 +736,20 @@ export class Renderer {
   }
 
   selectRing(c, r) {
+    this.addHexHighlight(c, r, 0xffffff, 0.1); // soft ground glow
     return this.addHexHighlight(c, r, 0xffffff, 0.9, true);
+  }
+
+  // brief white flash on a unit that just took a hit
+  flashUnit(unitId, dur = 0.18) {
+    const g = this.unitGroups.get(unitId);
+    if (!g) return;
+    const mats = [];
+    g.traverse(o => { if (o.material?.emissive && o.name !== 'unitlabel') mats.push(o.material); });
+    for (const m of mats) { m.userData.flashBase = m.emissive.getHex(); m.emissive.setHex(0xffffff); m.emissiveIntensity = 1; }
+    setTimeout(() => {
+      for (const m of mats) { m.emissive.setHex(m.userData.flashBase ?? 0x000000); m.emissiveIntensity = m.userData.flashBase ? 0.22 : 1; }
+    }, dur * 1000);
   }
 
   // --------------------------------------------------------------- picking

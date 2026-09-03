@@ -3,6 +3,7 @@
 // watchable. `speed` scales all durations; the Skip button cranks it up.
 
 import * as THREE from 'three';
+import { makeLabelSprite } from './render.js';
 
 export class Fx {
   constructor(renderer, ui, audio = null) {
@@ -98,6 +99,28 @@ export class Fx {
     });
   }
 
+  // damage number that rises and fades above the hit — the feedback loop
+  // every combat resolution deserves
+  floatText(pos, text, color = '#ffd27a', unitId = null) {
+    if (unitId) this.r.flashUnit(unitId);
+    const s = makeLabelSprite(text, { scale: 0.42, px: 34, bold: true, color });
+    s.position.copy(pos).add(new THREE.Vector3(0, 0.75, 0));
+    this.r.fxLayer.add(s);
+    let t = 0;
+    this.active.push({
+      update: dt => {
+        t += dt / 1.1;
+        s.position.y += dt * 0.7;
+        s.material.opacity = t < 0.6 ? 1 : Math.max(0, 1 - (t - 0.6) / 0.4);
+        if (t >= 1) { this.r.fxLayer.remove(s); return false; }
+        return true;
+      },
+    });
+  }
+
+  _hitText(lost, killed) { return killed ? 'DESTROYED' : lost ? `−${lost}` : 'miss'; }
+  _hitColor(lost, killed) { return killed ? '#ff6a4c' : lost ? '#ffd27a' : '#9fb4cc'; }
+
   tracer(from, to, color = 0xfff0b0) {
     this._sfx('gun');
     const geo = new THREE.BufferGeometry().setFromPoints([
@@ -146,6 +169,7 @@ export class Fx {
     const from = this.r.hexCenter(1, 5);
     await this.arc(from, to, { color: 0xff8060, apex: 7, dur: 0.9 });
     this.boom(to, { size: res?.steps ? 0.9 : 0.4, color: res?.steps ? 0xff5030 : 0x88bbee });
+    this.floatText(to, res?.steps ? `−${res.steps}` : 'intercepted', res?.steps ? '#ff6a4c' : '#8fd0ff', res?.steps ? target.id : null);
     this._step();
     await this.wait(250);
   }
@@ -197,7 +221,8 @@ export class Fx {
     ];
     await Promise.all(outbound);
     this.boom(this.r.hexCenter(target.c, target.r), { size: 0.45 });
-    if (res?.attrition) this.boom(to.clone(), { size: 0.3, color: 0xff7043 });
+    this.floatText(this.r.hexCenter(target.c, target.r), this._hitText(res?.lost, res?.killed), this._hitColor(res?.lost, res?.killed), target.id);
+    if (res?.attrition) { this.boom(to.clone(), { size: 0.3, color: 0xff7043 }); this.floatText(from.clone(), `−${res.attrition}`, '#ff9a7a', wing.id); }
     const inbound = [
       this._fly(jets[0], to.clone(), from.clone(), 0.7),
       this._fly(jets[1], to.clone().add(new THREE.Vector3(0.3, 0.05, 0.2)), wingman.clone(), 0.74),
@@ -214,12 +239,14 @@ export class Fx {
     this.tracer(a, d);
     await this.wait(160);
     this.boom(d, { size: res?.defKilled ? 0.9 : 0.4 });
+    this.floatText(d, this._hitText(res?.defLost, res?.defKilled), this._hitColor(res?.defLost, res?.defKilled), def.id);
     if (res?.atkLost) {
       // defender's return fire, made visible
       await this.wait(120);
       this.tracer(d, a, 0xa8d0ff);
       await this.wait(140);
       this.boom(a, { size: 0.35 });
+      this.floatText(a, this._hitText(res.atkLost, res.atkKilled), this._hitColor(res.atkLost, res.atkKilled), atk.id);
     }
     this._step();
     await this.wait(260);
@@ -235,6 +262,7 @@ export class Fx {
       await this.wait(110);
     }
     this.boom(d, { size: f.killed ? 0.8 : 0.4 });
+    this.floatText(d, this._hitText(f.lost, f.killed), this._hitColor(f.lost, f.killed), f.tgt.id);
     this._step();
     await this.wait(260);
   }

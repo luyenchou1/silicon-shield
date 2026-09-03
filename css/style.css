@@ -241,6 +241,13 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
 .diffCard b { color: var(--gold); }
 .diffCard .dim { display: block; font-size: 12px; margin-top: 2px; }
 
+/* ------------------------------------------------------- unit portrait */
+#unitPortrait {
+  float: right; width: 96px; height: 96px; margin: -4px -4px 4px 8px;
+  border-radius: 10px; background: radial-gradient(circle at 50% 60%, rgba(61,139,255,0.18), rgba(6,13,24,0.2) 70%);
+  border: 1px solid var(--panel-border);
+}
+
 /* ------------------------------------------------ minimap, hover tip, tour */
 #minimap {
   position: absolute; left: 10px; top: 60px; width: 150px; height: auto; z-index: 15;
@@ -302,6 +309,7 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
   .tlabel { flex-basis: 64px; }
   #unitPanel { left: 4px; right: auto; bottom: 96px; width: min(230px, 55vw); }
   #minimap { width: 104px; top: 54px; left: 6px; padding: 3px; }
+  #unitPortrait { width: 68px; height: 68px; }
   #tourCard { bottom: 150px; }
   #actionBar {
     bottom: 36px; gap: 4px;

@@ -200,8 +200,9 @@ function drawSelection() {
   }
   if (mode) return; // targeting highlights drawn by mode setup
   const u = sel();
-  if (!u) { ui.showUnit(null, null); return; }
+  if (!u) { ui.showUnit(null, null); renderer.showPortrait(null); return; }
   renderer.selectRing(u.c, u.r);
+  renderer.showPortrait(u);
   const extra = ui.hexInfo(game, map, u.c, u.r);
   // stack awareness: same friendly-first order selectAt cycles through
   const stackAll = unitsAt(game, u.c, u.r).filter(x => visibleTo(x, 'blue'))
@@ -887,6 +888,7 @@ function boot() {
   fx = new Fx(renderer, ui, audio);
   fx.onStep = () => { if (game) { renderer.syncUnits(game); ui.refreshTracks(game); ui.refreshLog(game); } };
   applySettings();
+  renderer.attachPortrait(document.getElementById('unitPortrait'));
   ui.buildMinimap(map, (c, r) => renderer.focusOn(c, r));
   // keep the minimap's camera marker live while the view moves (throttled)
   let mmPending = false;
