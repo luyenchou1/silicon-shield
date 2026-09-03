@@ -17,7 +17,7 @@ import { Fx } from './fx.js';
 import { UI, unitIcon } from './ui.js';
 import { TYPE_INTEL, LOC_INTEL } from './intel.js';
 import { AudioEngine } from './audio.js';
-import { DIFFICULTY } from './data.js';
+import { DIFFICULTY, SCENARIOS } from './data.js';
 
 const SAVE_KEY = 'silicon-shield-save-v1';
 
@@ -110,7 +110,10 @@ async function confirmEngagement(atk, def, odds, kind) {
 }
 
 // ------------------------------------------------------- campaign score
-const SCORE_OUTCOME = { 'strait-holds': 1000, 'beijing-blinks': 900, 'held-the-line': 700, 'capital-fallen': 150, 'capitulation': 100 };
+const SCORE_OUTCOME = {
+  'strait-holds': 1000, 'beijing-blinks': 900, 'held-the-line': 700, 'quarantine-broken': 800, 'islands-held': 800,
+  'capital-fallen': 150, 'islands-fallen': 150, 'capitulation': 100,
+};
 const SCORE_TITLES = ['Relieved of Command', 'Holding On', 'Steady Hand', 'Admiral of the Strait', 'Legend of the Silicon Shield'];
 
 function campaignScore() {
@@ -120,7 +123,8 @@ function campaignScore() {
   let s = SCORE_OUTCOME[r.kind] || 0;
   s += dead('red', ships) * 40 + dead('red', ['ground']) * 15 + dead('red', ['air']) * 20;
   s -= dead('blue', ships) * 25 + dead('blue', ['ground']) * 10 + dead('blue', ['air']) * 15;
-  if (r.winner === 'blue') s += Math.max(0, 30 - Math.min(game.turn, 30)) * 8; // a quick win is a clean win
+  const maxT = SCENARIOS[game.scenario || 'invasion']?.maxTurns || 30;
+  if (r.winner === 'blue') s += Math.max(0, maxT - Math.min(game.turn, maxT)) * (240 / maxT); // a quick win is a clean win
   s = Math.max(0, Math.round(s * ({ easy: 0.7, normal: 1, hard: 1.4 }[game.difficulty] || 1)));
   const stars = s >= 1500 ? 5 : s >= 1100 ? 4 : s >= 800 ? 3 : s >= 450 ? 2 : 1;
   const bestKey = `silicon-shield-best-${game.difficulty}`;
@@ -360,9 +364,9 @@ const actionModes = {
     handler: async h => { doRepair(game, h); },
   }),
   mines: () => setMode({
-    hint: 'Choose a landing beach to mine',
+    hint: 'Choose a landing beach or offshore island to mine',
     color: 0x60d080,
-    valid: h => h.loc?.beach && controllerOf(game, h) === 'blue' && (game.mines[key(h.c, h.r)] || 0) < 2,
+    valid: h => (h.loc?.beach || h.loc?.island) && controllerOf(game, h) === 'blue' && (game.mines[key(h.c, h.r)] || 0) < 2,
     handler: async h => { doMines(game, h); },
   }),
   ascm: () => targetUnitMode('Hsiung Feng coastal missiles: choose a PLAN target (within 3 of the coast)',
@@ -678,8 +682,10 @@ function afterActionReport() {
     .filter(Boolean);
   const jpEntry = game.log.find(e => e.text.includes('JAPAN COMMITS'))?.turn;
 
+  const scen = SCENARIOS[game.scenario || 'invasion'] || SCENARIOS.invasion;
   const facts = [
-    ['Days of war', `${Math.min(game.turn, 30)}`],
+    ['Scenario', `${scen.icon} ${scen.name} · ${game.difficulty}`],
+    ['Days of war', `${Math.min(game.turn, scen.maxTurns)}`],
     ['US entry', game.usEntered ? `D+${game.usEntryTurn}` : 'never committed'],
     ['Japan entry', game.jpEntered ? `D+${jpEntry ?? '?'}` : 'stayed out'],
     ['PLA ships sunk', `${dead('red', ['naval', 'amphib', 'sub'])}`],
@@ -772,6 +778,12 @@ what killed them), damage taken, airbases knocked out, and track movement. The f
 the bottom of the screen.</li>
 <li><b>Learn the theater.</b> Every unit and named place has an ℹ️ About brief — the real-world system
 or geography behind it and what it does in the game. Tap any unit, or any empty named hex, and hit About.</li>
+<li><b>Three wars.</b> The full <b>Invasion</b> (30 days); the <b>Blockade</b> (20 days: the cordon is the
+campaign — convoys, ship-killing and diplomacy keep Taiwan fed and defiant); and the <b>Kinmen Gambit</b>
+(10 days: a limited grab of Kinmen, Matsu and Penghu with part of the landing force — hold any one of them).
+Offshore islands can be mined like beaches.</li>
+<li><b>Odds and undo.</b> Every attack shows its expected outcome first (Settings can turn that off). Moves and
+rebases can be undone with ↩; combat and Command Point actions cannot.</li>
 </ul>
 <p class="dim">Camera: drag to pan, two-finger/right-drag to rotate, pinch/wheel to zoom. Esc cancels targeting.</p>`;
 
@@ -800,9 +812,20 @@ async function bootMenu() {
       startTurn(game, map);
     }
   } else {
-    ({ game, map } = newGame(choice));
+    const scBody = Object.entries(SCENARIOS).map(([id, s]) =>
+      `<p><b>${s.icon} ${s.name}</b> <span class="dim">· ${s.maxTurns} days</span><br>${s.blurb}</p>`).join('');
+    const scenario = await ui.modal({
+      title: 'Choose your war',
+      body: scBody,
+      wide: true,
+      buttons: Object.entries(SCENARIOS).map(([id, s]) => ({ label: `${s.icon} ${s.short}`, value: id, primary: id === 'invasion' })),
+    });
+    ({ game, map } = newGame(choice, undefined, scenario));
     startTurn(game, map);
-    log(game, 'D+1: PLA joint fire strikes begin. The invasion of Taiwan is underway.', 'alert', 'red');
+    log(game, scenario === 'blockade'
+      ? 'D+1: PLAN task groups declare an exclusion zone around Taiwan. The quarantine begins.'
+      : scenario === 'kinmen' ? 'D+1: PLA artillery opens on Kinmen and Matsu. The offshore islands are under attack.'
+        : 'D+1: PLA joint fire strikes begin. The invasion of Taiwan is underway.', 'alert', 'red');
     audio.ensure();
     audio.theme('main');
   }

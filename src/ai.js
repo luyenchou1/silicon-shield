@@ -26,6 +26,13 @@ const BEACHES = [
   { c: 13, r: 7, name: 'Yilan', weight: 1, objective: { c: 11, r: 5 } },
 ];
 
+// limited-war objectives: the offshore islands, nearest staging first
+const ISLANDS = [
+  { c: 2, r: 9, name: 'Kinmen', weight: 3, objective: { c: 2, r: 9 } },
+  { c: 6, r: 3, name: 'Matsu', weight: 2, objective: { c: 6, r: 3 } },
+  { c: 7, r: 10, name: 'Penghu', weight: 1.5, objective: { c: 7, r: 10 } },
+];
+
 function aggro(game) { return DIFFICULTY[game.difficulty].redAggro; }
 
 function aliveRed(game, pred) {
@@ -42,8 +49,11 @@ function defenseAtBeach(game, map, b) {
 }
 
 function pickBeach(game, map) {
+  const pool = game.ai.limited
+    ? ISLANDS.filter(b => controllerOf(game, map.get(b.c, b.r)) !== 'red')
+    : BEACHES;
   let best = null, bestScore = -1;
-  for (const b of BEACHES) {
+  for (const b of pool) {
     const score = b.weight * (6 / (1 + defenseAtBeach(game, map, b))) * (0.8 + rnd(game) * 0.4);
     if (score > bestScore) { bestScore = score; best = b; }
   }
@@ -218,14 +228,20 @@ async function amphibPhase(game, map, fx) {
   if (!beach) return;
   const loaded = aliveRed(game, u => u.cls === 'amphib' && u.cargo.length > 0);
 
+  const islandSpot = spots => spots.find(s => s.loc?.island && controllerOf(game, s) !== 'red');
   for (const flot of loaded) {
     // Can we assault this turn?
     const spots = canUnload(game, map, flot);
-    const target = spots.find(s => s.c === beach.c && s.r === beach.r) ||
+    const target = game.ai.limited ? islandSpot(spots) : (
+      spots.find(s => s.c === beach.c && s.r === beach.r) ||
       spots.find(s => map.isTaiwanMain(s)) ||
-      (aggro(game) >= 0.95 ? spots.find(s => s.loc?.island && controllerOf(game, s) !== 'red') : null);
-    const ready = landingReady(game);
-    if (target && ready && (escortsNear(game, flot, 2) >= 1 || aggro(game) >= 1.1)) {
+      (aggro(game) >= 0.95 ? islandSpot(spots) : null));
+    // a limited war doesn't wait for air superiority — speed is the whole point
+    const ready = game.ai.limited ? (game.turn >= 2 && weatherNow(game).amphib) : landingReady(game);
+    // islands under the mainland's guns need no escort; Penghu, in reach of Taiwan's
+    // missiles and jets, gets the full package
+    const unescorted = t => game.ai.limited && distToTaiwan(map, t.c, t.r) > 4;
+    if (target && ready && (escortsNear(game, flot, 2) >= 1 || aggro(game) >= 1.1 || unescorted(target))) {
       log(game, `${flot.name} commits to the landing at ${target.loc?.name || key(target.c, target.r)}!`, 'alert', 'red');
       const results = amphibAssault(game, map, flot, target);
       await fx.landing(flot, target, results);
@@ -238,8 +254,9 @@ async function amphibPhase(game, map, fx) {
       await fx.moved(flot);
       // try again after the move
       const spots2 = canUnload(game, map, flot);
-      const t2 = spots2.find(s => s.c === beach.c && s.r === beach.r) || spots2.find(s => map.isTaiwanMain(s));
-      if (t2 && ready && escortsNear(game, flot, 2) >= 1) {
+      const t2 = game.ai.limited ? islandSpot(spots2)
+        : (spots2.find(s => s.c === beach.c && s.r === beach.r) || spots2.find(s => map.isTaiwanMain(s)));
+      if (t2 && ready && (escortsNear(game, flot, 2) >= 1 || unescorted(t2))) {
         log(game, `${flot.name} commits to the landing at ${t2.loc?.name || key(t2.c, t2.r)}!`, 'alert', 'red');
         const results = amphibAssault(game, map, flot, t2);
         await fx.landing(flot, t2, results);
@@ -259,7 +276,8 @@ async function airbornePhase(game, map, fx) {
   if (!troops.length) return;
   // Kinmen coup de main early; main-island drops once the landing is in
   for (const u of troops) {
-    if (game.turn === 2 && !game.kinmenTaken && aggro(game) >= 0.95) {
+    const coupWindow = game.ai.limited ? game.turn >= 2 : (game.turn === 2 && aggro(game) >= 0.95);
+    if (coupWindow && !game.kinmenTaken) {
       const kinmen = map.get(2, 9);
       if (controllerOf(game, kinmen) !== 'red' && hexDist(u, kinmen) <= 4) {
         const res = airdrop(game, map, u, kinmen);
@@ -319,6 +337,14 @@ async function groundPhase(game, map, fx) {
 
 // --------------------------------------------------------------- strategy
 function updateStance(game, map) {
+  if (game.ai.blockadeOnly) { game.ai.stance = 'strangle'; return; }
+  if (game.ai.limited) {
+    // the next island still in ROC hands is always the objective
+    const cur = game.ai.beach && map.get(game.ai.beach.c, game.ai.beach.r);
+    if (!cur || controllerOf(game, cur) === 'red') game.ai.beach = pickBeach(game, map);
+    game.ai.stance = game.ai.beach ? 'seaControl' : 'strangle';
+    return;
+  }
   const amphAlive = game.units.some(u => u.alive && u.cls === 'amphib');
   const troopsAtSea = game.units.some(u => u.alive && u.embarkedIn);
   const ashore = game.units.some(u => u.alive && u.side === 'red' && u.cls === 'ground' &&
@@ -349,7 +375,10 @@ export async function runRedTurn(game, map, fx) {
   game.phase = 'red';
   if (!game.ai.beach) {
     game.ai.beach = pickBeach(game, map);
-    log(game, 'PLA Eastern Theater Command finalizes the landing plan.', 'info', 'red');
+    log(game, game.ai.blockadeOnly
+      ? 'PLA Eastern Theater Command declares a maritime quarantine of Taiwan.'
+      : game.ai.limited ? 'PLA Eastern Theater Command orders the seizure of the offshore islands.'
+        : 'PLA Eastern Theater Command finalizes the landing plan.', 'info', 'red');
   }
   if (game.revealRedPlan && !game.ai.planRevealed) {
     game.ai.planRevealed = true;

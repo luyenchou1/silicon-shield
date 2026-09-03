@@ -56,18 +56,19 @@ function spawnOOB(game, map, oob, side) {
   }
 }
 
-export function newGame(difficulty = 'normal', seed = (Math.random() * 2 ** 31) | 0) {
+export function newGame(difficulty = 'normal', seed = (Math.random() * 2 ** 31) | 0, scenario = 'invasion') {
   nextId = 1;
   const diff = DIFFICULTY[difficulty];
   const map = buildMap();
   const game = {
-    seed, rngCalls: 0, difficulty,
+    seed, rngCalls: 0, difficulty, scenario,
     turn: 1, phase: 'blue', weather: 'clear', forcedWeather: null,
     units: [],
     red: { srbm: diff.srbm, lacm: diff.lacm, asbm: diff.asbm },
     pools: { ...BLUE_POOLS },
     interceptors: diff.interceptors,
-    intervention: diff.intervention, prcWill: 100, twWill: 100, supply: 100,
+    intervention: diff.intervention, prcWill: 100, twWill: 100,
+    supply: scenario === 'blockade' ? 80 : 100, // stockpiles already drawn down by the 'quarantine' exercises
     usEntered: false, jpEntered: false, usEntryTurn: null, secondCSGIn: false,
     cp: 0, cpPenalty: 0,
     airSup: 1, // red starts with local advantage: surprise + mainland SAM umbrella
@@ -82,12 +83,27 @@ export function newGame(difficulty = 'normal', seed = (Math.random() * 2 ** 31) 
     usedEvents: [], minedBeaches: [],
     taipeiRedTurns: 0, kinmenTaken: false,
     result: null,
-    ai: { stance: 'fires', beach: null, landed: false },
+    ai: {
+      stance: scenario === 'blockade' ? 'strangle' : 'fires', beach: null, landed: false,
+      blockadeOnly: scenario === 'blockade', // never commits the landing force
+      limited: scenario === 'kinmen',        // objectives are the offshore islands only
+    },
     log: [],
   };
   game.rng = mulberry32(seed);
   spawnOOB(game, map, BLUE_OOB, 'blue');
   spawnOOB(game, map, RED_OOB, 'red');
+  if (scenario === 'kinmen') {
+    // a limited war comes with warning: Penghu has had time to dig in (mining it is up to you)
+    const penghu = game.units.find(u => u.name.startsWith('Penghu'));
+    if (penghu) { penghu.hp = 4; penghu.maxHp = 4; }
+    // ...and Beijing, avoiding escalation, commits only part of the landing force
+    const flots = game.units.filter(u => u.side === 'red' && u.cls === 'amphib');
+    const held = new Set();
+    flots.forEach((f, i) => { if (i % 3 === 2) { held.add(f.id); for (const cid of f.cargo) held.add(cid); } });
+    game.units = game.units.filter(u => !held.has(u.id)); // never sailed: not losses, just absent
+    game.redReinfDelay = 99; // no follow-on echelons put to sea
+  }
   return { game, map };
 }
 

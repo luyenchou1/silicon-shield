@@ -26,6 +26,10 @@ vendored in `lib/`).
 
 - **Camera** — drag to pan, right-drag / two-finger drag to rotate, wheel / pinch to zoom
 - **Orders** — tap a unit to select it; tap a white hex to move, a red ring to attack
+- **Three scenarios** — the full Invasion (30 days), the Blockade (20 days of cordon and
+  coercion), and the Kinmen Gambit (a 10-day limited war for the offshore islands)
+- **Engagement odds** — expected steps, kill chance and return fire before every attack;
+  ↩ undo for moves and rebases (never combat: the RNG position is replayed exactly)
 - **Situation report** — after every PLA turn: your losses (with causes), damage, and track shifts
 - **Learn the theater** — every unit and named place has an ℹ️ About brief: the real-world
   system or geography behind it, and its role in the game

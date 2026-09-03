@@ -4,6 +4,7 @@
 // descriptors that the UI/FX layer animates.
 
 import { key, hexDist, hexesInRange } from './hex.js';
+import { SCENARIOS } from './data.js';
 import { distToTaiwan } from './map.js';
 import { TYPES, CONST, WEATHER, EVENTS, RED_REINFORCEMENTS, US_PACKAGE, US_SECOND_CSG, JP_PACKAGE, US_KADENA_WING } from './data.js';
 import { makeUnit, typeOf, rnd, d } from './state.js';
@@ -749,9 +750,11 @@ export function startTurn(game, map) {
   checkAllianceEntries(game, map);
   // supply & blockade
   recomputeBlockade(game, map);
-  game.supply = Math.max(0, game.supply - game.blockade * 2 - 0.5);
-  if (game.supply <= 0) game.twWill -= 4;
-  else if (game.supply < 40) game.twWill -= 1;
+  // in the blockade scenario the cordon IS the campaign: the squeeze bites harder
+  const siege = game.scenario === 'blockade';
+  game.supply = Math.max(0, game.supply - game.blockade * 2 - 0.5 - (siege && game.blockade ? 2.5 : 0));
+  if (game.supply <= 0) game.twWill -= siege ? 8 : 4;
+  else if (game.supply < 40) game.twWill -= siege ? 2 : 1;
   // occupied cities sap will
   for (const [k, ctrl] of Object.entries(game.control)) {
     if (ctrl !== 'red') continue;
@@ -831,19 +834,31 @@ export function endOfRedPhase(game, map) {
   return fires;
 }
 
+export function scenarioMaxTurns(game) {
+  return SCENARIOS[game.scenario || 'invasion']?.maxTurns || CONST.maxTurns;
+}
+
 export function checkVictory(game, map) {
   if (game.result) return game.result;
+  const maxTurns = scenarioMaxTurns(game);
   const redAmphAlive = game.units.some(u => u.alive && u.cls === 'amphib');
   const redOnTaiwan = game.units.some(u => u.alive && u.side === 'red' && u.cls === 'ground' && map.isTaiwanMain(map.get(u.c, u.r)));
+  const kinmenRed = game.control['2,9'] === 'red', matsuRed = game.control['6,3'] === 'red', penghuRed = game.control['7,10'] === 'red';
   if (game.twWill <= 0) {
     game.result = { winner: 'red', kind: 'capitulation', title: 'Taiwan Capitulates', text: 'Blockade, bombardment and lost ground broke the defenders’ will. Taipei accepts “reunification talks” under PLA guns.' };
   } else if (game.prcWill <= 0) {
-    game.result = { winner: 'blue', kind: 'beijing-blinks', title: 'Beijing Seeks an Off-Ramp', text: 'Staggering losses, sanctions and a stalled invasion force the Politburo to declare victory and go home. The strait holds.' };
+    game.result = { winner: 'blue', kind: 'beijing-blinks', title: 'Beijing Seeks an Off-Ramp', text: 'Staggering losses, sanctions and a stalled campaign force the Politburo to declare victory and go home. The strait holds.' };
+  } else if (game.scenario === 'kinmen' && kinmenRed && matsuRed && penghuRed) {
+    game.result = { winner: 'red', kind: 'islands-fallen', title: 'The Islands Fall', text: 'Kinmen, Matsu and Penghu are in PLA hands. Beijing declares the “reunification of Fujian” complete and dares the world to respond; Taipei’s deterrent looks hollow.' };
+  } else if (game.scenario === 'kinmen' && game.turn > maxTurns) {
+    game.result = { winner: 'blue', kind: 'islands-held', title: 'The Islands Hold', text: 'Ten days on, the ROC flag still flies over an offshore island under Chinese guns. The fait accompli failed; the grab cost Beijing ships, prestige and the initiative.' };
+  } else if (game.scenario === 'blockade' && game.turn > maxTurns) {
+    game.result = { winner: 'blue', kind: 'quarantine-broken', title: 'The Quarantine Fails', text: 'Three weeks of cordon, coercion and convoy battles, and Taiwan is still fed, still armed, still defiant. The blockade has become a siege Beijing cannot afford.' };
   } else if (game.taipeiRedTurns >= 2) {
     game.result = { winner: 'red', kind: 'capital-fallen', title: 'The Fall of Taipei', text: 'With the capital firmly in PLA hands, organized resistance collapses. The PRC completes its conquest.' };
   } else if (!redAmphAlive && !redOnTaiwan && game.turn >= 6) {
     game.result = { winner: 'blue', kind: 'strait-holds', title: 'Decisive Victory: The Strait Holds', text: 'The invasion fleet lies on the bottom of the Taiwan Strait and no PLA soldier stands on the island. A historic defensive victory.' };
-  } else if (game.turn > CONST.maxTurns) {
+  } else if (game.turn > maxTurns) {
     game.result = { winner: 'blue', kind: 'held-the-line', title: 'Taiwan Endures', text: 'Thirty days on, Taiwan still stands. The invasion has culminated; international pressure imposes a ceasefire on Beijing’s worst terms.' };
   }
   return game.result;

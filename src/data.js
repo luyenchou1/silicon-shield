@@ -46,6 +46,23 @@ export const TYPES = {
   jpWing:  { cls: 'air', name: 'JASDF F-35 Wing', short: 'F-35', hp: 3, airPts: 3, strike: 2, def: 4 },
 };
 
+// ------------------------------------------------------------- scenarios
+// Same engine and order of battle; different PLA intent and victory terms.
+export const SCENARIOS = {
+  invasion: {
+    name: 'Joint Island Landing Campaign', short: 'Invasion', maxTurns: 30, icon: '⚔️',
+    blurb: 'The full-scale invasion. Survive 30 days, keep Taipei, sink the amphibious fleet, or break Beijing\'s will.',
+  },
+  blockade: {
+    name: 'The Strangulation', short: 'Blockade', maxTurns: 20, icon: '⚓',
+    blurb: 'Beijing chooses quarantine over invasion: a naval cordon, missile coercion, and a bet that Taiwan\'s supply and resolve give out first. Hold for 20 days — convoys, ship-killing and diplomacy are your weapons; the landing force waits offshore as a threat.',
+  },
+  kinmen: {
+    name: 'The Kinmen Gambit', short: 'Kinmen', maxTurns: 10, icon: '🏝️',
+    blurb: 'A limited war for the offshore islands. The PLA moves to seize Kinmen, Matsu and Penghu as a fait accompli; keep at least one in ROC hands for 10 days — or make the grab so costly that Beijing backs down. Kinmen and Matsu sit under mainland guns; Penghu is where your missiles, jets and fleet can fight.',
+  },
+};
+
 // ------------------------------------------------------------------- OOB
 // Each entry: [typeId, displayName, c, r, extra]
 export const BLUE_OOB = [

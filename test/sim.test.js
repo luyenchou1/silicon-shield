@@ -213,5 +213,28 @@ for (const [label, fn] of [['passive blue', bluePassive], ['competent blue', blu
   console.log('movement sanity: done');
 }
 
+// scenario smoke: the alternate wars must run to a verdict, and a passive
+// defender must not be able to sit out the blockade
+{
+  const fxNull = new Proxy({}, { get: () => async () => {} });
+  const tally = { blockade: {}, kinmen: {} };
+  for (const sc of ['blockade', 'kinmen']) {
+    for (let s = 1; s <= 4; s++) {
+      const { game, map } = newGame('normal', s * 104729, sc);
+      startTurn(game, map);
+      let guard = 0;
+      while (!game.result && guard++ < 40) {
+        await runRedTurn(game, map, fxNull);
+        endOfRedPhase(game, map);
+        if (!game.result) { startTurn(game, map); checkVictory(game, map); }
+      }
+      if (!game.result) { failures++; console.error(`  FAIL: ${sc} seed ${s} produced no result`); }
+      else tally[sc][game.result.winner] = (tally[sc][game.result.winner] || 0) + 1;
+    }
+  }
+  console.log('scenario smoke (passive blue):', JSON.stringify(tally));
+  if ((tally.blockade.blue || 0) > 1) { failures++; console.error('  FAIL: passive defender survived the blockade too often'); }
+}
+
 if (failures) { console.error(`\n${failures} FAILURES`); process.exit(1); }
 console.log('\nall checks passed');
