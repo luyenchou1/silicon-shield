@@ -726,6 +726,7 @@ function boot() {
   window.__ss = {
     get game() { return game; },
     get map() { return map; },
+    get renderer() { return renderer; },
     screenOf(c, r) {
       const p = renderer.hexCenter(c, r).project(renderer.camera);
       const rect = renderer.renderer.domElement.getBoundingClientRect();

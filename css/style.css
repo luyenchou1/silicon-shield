@@ -26,6 +26,11 @@ body {
 
 #app { position: fixed; inset: 0; }
 #scene { position: absolute; inset: 0; touch-action: none; overscroll-behavior: none; }
+/* cinematic vignette over the 3D view; lets input through */
+#scene::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(2, 6, 12, 0.5) 100%);
+}
 #scene canvas { display: block; touch-action: none; }
 
 /* ---------------------------------------------------------------- topbar */
