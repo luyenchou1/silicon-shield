@@ -351,6 +351,18 @@ export class Renderer {
         }
       }
 
+      // sand along every shoreline edge: the coast reads at a glance
+      for (const nb of this.map.neighborsOf(hex.c, hex.r)) {
+        if (!nb.t.water) continue;
+        const np = worldPos(nb.c, nb.r);
+        const a = Math.atan2(np.x - x, np.z - z);
+        const apothem = 0.965 * Math.cos(Math.PI / 6);
+        batch.add(bldg, 0xb7a878, {
+          x: x + Math.sin(a) * (apothem - 0.07), y: top + 0.006, z: z + Math.cos(a) * (apothem - 0.07),
+          sx: 0.9, sy: 0.012, sz: 0.14, ry: a,
+        });
+      }
+
       const loc = hex.loc;
       if (!loc) continue;
       if (loc.city || loc.capital) {

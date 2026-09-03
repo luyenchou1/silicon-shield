@@ -1,0 +1,15 @@
+{
+  "name": "Silicon Shield — The Battle for Taiwan",
+  "short_name": "Silicon Shield",
+  "description": "A turn-based operational wargame of a 2027 PRC invasion of Taiwan.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060d18",
+  "theme_color": "#060d18",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

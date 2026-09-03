@@ -308,7 +308,7 @@ button.primary:hover:not(:disabled) { background: #2763ad; }
   }
   .tlabel { flex-basis: 64px; }
   #unitPanel { left: 4px; right: auto; bottom: 96px; width: min(230px, 55vw); }
-  #minimap { width: 104px; top: 54px; left: 6px; padding: 3px; }
+  #minimap { width: 84px; top: 54px; left: 6px; padding: 3px; }
   #unitPortrait { width: 68px; height: 68px; }
   #tourCard { bottom: 150px; }
   #actionBar {
